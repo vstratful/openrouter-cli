@@ -22,6 +22,15 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("62")).
 			Padding(0, 1)
+
+	// Autocomplete styles
+	autocompleteBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("63")).
+				Padding(0, 1)
+	autocompleteItemStyle     = lipgloss.NewStyle().PaddingLeft(2)
+	autocompleteSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	autocompleteDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 )
 
 type streamChunkMsg string
@@ -49,6 +58,11 @@ type chatModel struct {
 	pickerModel    *sessionPickerModel
 	showingModelPicker bool            // Whether model picker is showing
 	modelPickerModel   *modelPickerModel
+
+	// Command autocomplete state
+	showingAutocomplete bool
+	autocompleteIndex   int
+	filteredCommands    []Command
 }
 
 func newChatModel(apiKey, modelName string, existingSession *config.Session) chatModel {
@@ -119,6 +133,11 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle autocomplete navigation when visible
+		if m.showingAutocomplete {
+			return m.updateAutocomplete(msg)
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
@@ -151,6 +170,11 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if userInput == "/model" {
 				m.textarea.Reset()
 				return m.showModelPicker()
+			}
+
+			// Handle /quit and /exit commands
+			if userInput == "/quit" || userInput == "/exit" {
+				return m, tea.Quit
 			}
 
 			// Save to history (skip consecutive duplicates)
@@ -230,6 +254,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if !m.streaming {
 		m.textarea, tiCmd = m.textarea.Update(msg)
+		m.updateAutocompleteState()
 	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
@@ -275,6 +300,91 @@ func (m *chatModel) navigateHistoryDown() {
 		m.historyIndex = -1
 		m.textarea.SetValue(m.currentDraft)
 	}
+}
+
+// updateAutocompleteState updates autocomplete visibility based on input
+func (m *chatModel) updateAutocompleteState() {
+	input := m.textarea.Value()
+
+	// Only show autocomplete for input starting with / and no space
+	if !strings.HasPrefix(input, "/") || strings.Contains(input, " ") {
+		m.showingAutocomplete = false
+		m.filteredCommands = nil
+		m.autocompleteIndex = 0
+		return
+	}
+
+	m.filteredCommands = FilterCommands(input)
+
+	// Don't show autocomplete if input exactly matches a command
+	exactMatch := false
+	for _, cmd := range m.filteredCommands {
+		if strings.EqualFold(cmd.Name, input) {
+			exactMatch = true
+			break
+		}
+	}
+
+	m.showingAutocomplete = len(m.filteredCommands) > 0 && !exactMatch
+
+	// Clamp index to valid range
+	if m.autocompleteIndex >= len(m.filteredCommands) {
+		m.autocompleteIndex = max(0, len(m.filteredCommands)-1)
+	}
+}
+
+// updateAutocomplete handles key events when autocomplete is visible
+func (m chatModel) updateAutocomplete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		// Hide autocomplete but don't quit
+		m.showingAutocomplete = false
+		return m, nil
+
+	case tea.KeyUp:
+		if m.autocompleteIndex > 0 {
+			m.autocompleteIndex--
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		if m.autocompleteIndex < len(m.filteredCommands)-1 {
+			m.autocompleteIndex++
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		// Fill selected command into textarea
+		if m.autocompleteIndex < len(m.filteredCommands) {
+			m.textarea.SetValue(m.filteredCommands[m.autocompleteIndex].Name)
+		}
+		m.showingAutocomplete = false
+		return m, nil
+
+	default:
+		// Pass to textarea then update state
+		var cmd tea.Cmd
+		m.textarea, cmd = m.textarea.Update(msg)
+		m.updateAutocompleteState()
+		return m, cmd
+	}
+}
+
+// renderAutocomplete renders the autocomplete dropdown
+func (m *chatModel) renderAutocomplete() string {
+	var items []string
+	for i, cmd := range m.filteredCommands {
+		var line string
+		if i == m.autocompleteIndex {
+			line = autocompleteSelectedStyle.Render("> " + cmd.Name)
+		} else {
+			line = autocompleteItemStyle.Render(cmd.Name)
+		}
+		line += " " + autocompleteDescStyle.Render(cmd.Description)
+		items = append(items, line)
+	}
+	content := strings.Join(items, "\n")
+	return autocompleteBoxStyle.Render(content)
 }
 
 func (m *chatModel) updateViewportContent() {
@@ -487,11 +597,28 @@ func (m chatModel) View() string {
 			footer = fmt.Sprintf("%s Streaming...", m.spinner.View())
 		}
 	} else {
-		footer = helpStyle.Render("Enter: send | ↑/↓: history | /resume: switch session | /model: change model | Esc: quit")
+		footer = helpStyle.Render("Enter: send | ↑/↓: history | / for commands | Esc: quit")
+	}
+
+	// Render autocomplete if showing
+	var autocompleteView string
+	if m.showingAutocomplete && len(m.filteredCommands) > 0 {
+		autocompleteView = m.renderAutocomplete()
 	}
 
 	// Style the input box
 	inputBox := inputBoxStyle.Width(m.width - 4).Render(m.textarea.View())
+
+	if autocompleteView != "" {
+		return fmt.Sprintf(
+			"%s\n%s\n%s\n%s\n%s",
+			header,
+			m.viewport.View(),
+			autocompleteView,
+			inputBox,
+			footer,
+		)
+	}
 
 	return fmt.Sprintf(
 		"%s\n%s\n%s\n%s",
