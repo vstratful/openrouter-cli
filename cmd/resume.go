@@ -31,7 +31,7 @@ func init() {
 
 func runResume(cmd *cobra.Command, args []string) error {
 	// Get API key
-	apiKey, isFirstRun, err := getAPIKey()
+	apiKey, cfg, isFirstRun, err := getAPIKey()
 	if err != nil {
 		return err
 	}
@@ -88,7 +88,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		modelName = session.Model
 	}
 	if modelName == "" {
-		modelName = defaultModel
+		modelName = cfg.DefaultModel
 	}
 
 	return runChatWithSession(apiKey, modelName, session)

@@ -14,9 +14,6 @@ var (
 	stream bool
 )
 
-// defaultModel uses the constant from the config package.
-const defaultModel = config.DefaultModel
-
 var rootCmd = &cobra.Command{
 	Use:   "openrouter",
 	Short: "A CLI for interacting with OpenRouter API",
@@ -30,7 +27,7 @@ Examples:
   openrouter --model anthropic/claude-3.5-sonnet --prompt "Explain Go concurrency"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get API key first - nothing else matters without it
-		apiKey, isFirstRun, err := getAPIKey()
+		apiKey, cfg, isFirstRun, err := getAPIKey()
 		if err != nil {
 			return err
 		}
@@ -47,7 +44,7 @@ Examples:
 
 		// Use default model if not specified
 		if model == "" {
-			model = defaultModel
+			model = cfg.DefaultModel
 		}
 
 		// Interactive chat mode when no prompt provided
@@ -61,7 +58,7 @@ Examples:
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&model, "model", "m", "", "Model to use (default: "+defaultModel+")")
+	rootCmd.PersistentFlags().StringVarP(&model, "model", "m", "", "Model to use (default: "+config.DefaultModel+")")
 	rootCmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt for single-turn mode (omit for interactive chat)")
 	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response (default: true)")
 }
@@ -74,32 +71,36 @@ func Execute() error {
 // 1. OPENROUTER_API_KEY environment variable
 // 2. Config file
 // 3. Interactive prompt (first-run experience)
-// Returns the key, a boolean indicating if this was first-run setup, and any error
-func getAPIKey() (string, bool, error) {
-	// 1. Check environment variable first
-	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
-		return key, false, nil
-	}
-
-	// 2. Load from config file
+// Returns the key, the loaded config, a boolean indicating if this was first-run setup, and any error
+func getAPIKey() (string, *config.Config, bool, error) {
+	// 1. Load config first (we need it regardless)
 	cfg, err := config.Load()
 	if err != nil {
-		return "", false, fmt.Errorf("failed to load config: %w", err)
-	}
-	if cfg.APIKey != "" {
-		return cfg.APIKey, false, nil
+		return "", nil, false, fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// 3. First-run: prompt user and save
+	// 2. Check environment variable
+	if key := os.Getenv("OPENROUTER_API_KEY"); key != "" {
+		return key, cfg, false, nil
+	}
+
+	// 3. Use config file if API key exists
+	if cfg.APIKey != "" {
+		return cfg.APIKey, cfg, false, nil
+	}
+
+	// 4. First-run: prompt user and save with defaults
 	key, err := config.PromptForAPIKey()
 	if err != nil {
-		return "", false, err
+		return "", nil, false, err
 	}
 
 	cfg.APIKey = key
+	cfg.DefaultModel = config.DefaultModel
+	cfg.DefaultImageModel = config.DefaultImageModel
 	if err := config.Save(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
 	}
 
-	return key, true, nil
+	return key, cfg, true, nil
 }

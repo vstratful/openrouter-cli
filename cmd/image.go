@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vstratful/openrouter-cli/internal/api"
+	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
 var (
@@ -19,8 +20,6 @@ var (
 	imageAspectRatio string
 	imageSize        string
 )
-
-const defaultImageModel = "google/gemini-2.5-flash-image"
 
 var imageCmd = &cobra.Command{
 	Use:   "image",
@@ -50,7 +49,7 @@ Examples:
 
 func init() {
 	rootCmd.AddCommand(imageCmd)
-	imageCmd.Flags().StringVarP(&imageModel, "model", "m", "", "Model to use (default: "+defaultImageModel+")")
+	imageCmd.Flags().StringVarP(&imageModel, "model", "m", "", "Model to use (default: "+config.DefaultImageModel+")")
 	imageCmd.Flags().StringVarP(&imagePrompt, "prompt", "p", "", "Image generation prompt (required)")
 	imageCmd.Flags().StringVarP(&imageFile, "file", "f", "", "Output file path (e.g., output.png)")
 	imageCmd.Flags().BoolVar(&imageBase64, "base64", false, "Output raw base64 instead of saving to file")
@@ -69,18 +68,18 @@ func runImage(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--file and --base64 are mutually exclusive")
 	}
 
-	// Use default model if not specified
-	if imageModel == "" {
-		imageModel = defaultImageModel
-	}
-
-	apiKey, isFirstRun, err := getAPIKey()
+	apiKey, cfg, isFirstRun, err := getAPIKey()
 	if err != nil {
 		return err
 	}
 	if isFirstRun {
 		fmt.Println("\nAPI key saved. Run the command again to generate an image.")
 		return nil
+	}
+
+	// Use default model if not specified
+	if imageModel == "" {
+		imageModel = cfg.DefaultImageModel
 	}
 
 	client := api.DefaultClient(apiKey)

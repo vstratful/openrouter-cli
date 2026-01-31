@@ -13,8 +13,11 @@ import (
 
 // Default configuration values.
 const (
-	// DefaultModel is the default model to use.
+	// DefaultModel is the default model to use when not configured.
 	DefaultModel = "moonshotai/kimi-k2.5"
+
+	// DefaultImageModel is the default model for image generation.
+	DefaultImageModel = "google/gemini-2.5-flash-image"
 
 	// DefaultStreamTimeout is the default timeout for streaming requests.
 	DefaultStreamTimeout = 5 * time.Minute
@@ -38,7 +41,9 @@ const (
 
 // Config holds the application configuration that is persisted to disk.
 type Config struct {
-	APIKey string `json:"api_key"`
+	APIKey            string `json:"api_key"`
+	DefaultModel      string `json:"default_model,omitempty"`
+	DefaultImageModel string `json:"default_image_model,omitempty"`
 }
 
 // AppConfig holds all runtime configuration.
@@ -86,6 +91,7 @@ func GetConfigPath() (string, error) {
 
 // Load reads the config file and returns the Config struct.
 // Returns an empty Config if the file doesn't exist.
+// Applies default values for any missing model fields.
 func Load() (*Config, error) {
 	configPath, err := GetConfigPath()
 	if err != nil {
@@ -103,6 +109,14 @@ func Load() (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	}
+
+	// Apply defaults for missing model fields (handles existing configs)
+	if cfg.DefaultModel == "" {
+		cfg.DefaultModel = DefaultModel
+	}
+	if cfg.DefaultImageModel == "" {
+		cfg.DefaultImageModel = DefaultImageModel
 	}
 
 	return &cfg, nil

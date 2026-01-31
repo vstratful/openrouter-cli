@@ -39,7 +39,7 @@ func init() {
 }
 
 func runModels(cmd *cobra.Command, args []string) error {
-	apiKey, isFirstRun, err := getAPIKey()
+	apiKey, _, isFirstRun, err := getAPIKey()
 	if err != nil {
 		return err
 	}
