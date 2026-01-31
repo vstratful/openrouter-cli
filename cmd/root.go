@@ -60,7 +60,7 @@ Examples:
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Model to use (default: "+defaultModel+")")
+	rootCmd.PersistentFlags().StringVarP(&model, "model", "m", "", "Model to use (default: "+defaultModel+")")
 	rootCmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt for single-turn mode (omit for interactive chat)")
 	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response (default: true)")
 }

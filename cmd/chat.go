@@ -43,9 +43,12 @@ type chatModel struct {
 	session        *config.Session // Current session (has ID and History)
 	historyIndex   int             // -1 = not browsing, otherwise index into history
 	currentDraft   string          // Preserve current input when navigating
+	isResumed      bool            // Whether this is a resumed session
+	showingPicker  bool            // Whether session picker is showing
+	pickerModel    *sessionPickerModel
 }
 
-func newChatModel(apiKey, modelName string) chatModel {
+func newChatModel(apiKey, modelName string, existingSession *config.Session) chatModel {
 	ta := textarea.New()
 	ta.Placeholder = "Type your message..."
 	ta.Focus()
@@ -62,15 +65,32 @@ func newChatModel(apiKey, modelName string) chatModel {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
-	return chatModel{
+	m := chatModel{
 		textarea:     ta,
 		spinner:      sp,
 		apiKey:       apiKey,
 		modelName:    modelName,
 		messages:     []Message{},
-		session:      config.NewSession(),
 		historyIndex: -1,
 	}
+
+	// Load existing session or create new one
+	if existingSession != nil {
+		m.session = existingSession
+		m.isResumed = true
+		// Restore messages from session
+		for _, msg := range existingSession.Messages {
+			m.messages = append(m.messages, Message{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+	} else {
+		m.session = config.NewSession()
+		m.session.Model = modelName
+	}
+
+	return m
 }
 
 func (m chatModel) Init() tea.Cmd {
@@ -78,6 +98,11 @@ func (m chatModel) Init() tea.Cmd {
 }
 
 func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle session picker mode
+	if m.showingPicker && m.pickerModel != nil {
+		return m.updatePicker(msg)
+	}
+
 	var (
 		tiCmd tea.Cmd
 		vpCmd tea.Cmd
@@ -106,6 +131,12 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			userInput := strings.TrimSpace(m.textarea.Value())
 			if userInput == "" {
 				return m, nil
+			}
+
+			// Handle /resume command
+			if userInput == "/resume" {
+				m.textarea.Reset()
+				return m.showSessionPicker()
 			}
 
 			// Save to history (skip consecutive duplicates)
@@ -266,12 +297,102 @@ func (m *chatModel) updateViewportContent() {
 	m.viewport.GotoBottom()
 }
 
+func (m chatModel) showSessionPicker() (tea.Model, tea.Cmd) {
+	summaries, err := config.ListSessions()
+	if err != nil || len(summaries) == 0 {
+		m.err = fmt.Errorf("no saved sessions found")
+		m.updateViewportContent()
+		return m, nil
+	}
+
+	picker := newSessionPickerModel(summaries)
+	picker.list.SetWidth(m.width)
+	picker.list.SetHeight(m.height - 2)
+	m.pickerModel = &picker
+	m.showingPicker = true
+	return m, nil
+}
+
+func (m chatModel) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		m.pickerModel.list.SetWidth(msg.Width)
+		m.pickerModel.list.SetHeight(msg.Height - 2)
+		return m, nil
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			// Return to chat without selecting
+			m.showingPicker = false
+			m.pickerModel = nil
+			return m, nil
+
+		case "ctrl+c":
+			return m, tea.Quit
+
+		case "enter":
+			if i, ok := m.pickerModel.list.SelectedItem().(sessionItem); ok {
+				// Load the selected session
+				session, err := config.LoadSession(i.summary.ID)
+				if err != nil {
+					m.err = fmt.Errorf("failed to load session: %w", err)
+					m.showingPicker = false
+					m.pickerModel = nil
+					m.updateViewportContent()
+					return m, nil
+				}
+
+				// Replace current session with loaded one
+				m.session = session
+				m.isResumed = true
+				m.messages = []Message{}
+				for _, msg := range session.Messages {
+					m.messages = append(m.messages, Message{
+						Role:    msg.Role,
+						Content: msg.Content,
+					})
+				}
+
+				// Update model if session has one
+				if session.Model != "" {
+					m.modelName = session.Model
+				}
+
+				m.historyIndex = -1
+				m.currentDraft = ""
+				m.showingPicker = false
+				m.pickerModel = nil
+				m.updateViewportContent()
+				return m, nil
+			}
+		}
+	}
+
+	// Delegate to picker
+	newPicker, cmd := m.pickerModel.Update(msg)
+	if p, ok := newPicker.(sessionPickerModel); ok {
+		m.pickerModel = &p
+	}
+	return m, cmd
+}
+
 func (m chatModel) View() string {
 	if !m.ready {
 		return "Initializing..."
 	}
 
+	// Show session picker if active
+	if m.showingPicker && m.pickerModel != nil {
+		return m.pickerModel.View() + "\n" + helpStyle.Render("Enter: select | Esc: cancel | /: filter")
+	}
+
 	header := fmt.Sprintf("Chat with %s", m.modelName)
+	if m.isResumed {
+		header += " (Resumed)"
+	}
 
 	var footer string
 	if m.streaming {
@@ -281,7 +402,7 @@ func (m chatModel) View() string {
 			footer = fmt.Sprintf("%s Streaming...", m.spinner.View())
 		}
 	} else {
-		footer = helpStyle.Render("Enter: send | ↑/↓: history | Esc/Ctrl+C: quit")
+		footer = helpStyle.Render("Enter: send | ↑/↓: history | /resume: switch session | Esc: quit")
 	}
 
 	// Style the input box
@@ -356,8 +477,12 @@ func waitForChunk() tea.Msg {
 }
 
 func runChat(apiKey, modelName string) error {
+	return runChatWithSession(apiKey, modelName, nil)
+}
+
+func runChatWithSession(apiKey, modelName string, session *config.Session) error {
 	p := tea.NewProgram(
-		newChatModel(apiKey, modelName),
+		newChatModel(apiKey, modelName, session),
 		tea.WithAltScreen(),
 	)
 
