@@ -14,7 +14,8 @@ var (
 	stream bool
 )
 
-const defaultModel = "moonshotai/kimi-k2.5"
+// defaultModel uses the constant from the config package.
+const defaultModel = config.DefaultModel
 
 var rootCmd = &cobra.Command{
 	Use:   "openrouter",

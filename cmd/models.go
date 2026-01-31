@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vstratful/openrouter-cli/internal/tui/picker"
 )
 
 var (
@@ -83,7 +84,7 @@ func printModelDetails(m Model) {
 	}
 
 	fmt.Printf("Pricing: prompt=$%s/1M tokens, completion=$%s/1M tokens\n",
-		formatPricePerMillion(m.Pricing.Prompt), formatPricePerMillion(m.Pricing.Completion))
+		picker.FormatPricePerMillion(m.Pricing.Prompt), picker.FormatPricePerMillion(m.Pricing.Completion))
 
 	if len(m.Architecture.InputModalities) > 0 {
 		fmt.Printf("Input: %s\n", strings.Join(m.Architecture.InputModalities, ", "))

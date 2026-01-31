@@ -1,266 +1,92 @@
 package cmd
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
+
+	"github.com/vstratful/openrouter-cli/internal/api"
 )
 
-const (
-	openRouterURL       = "https://openrouter.ai/api/v1/chat/completions"
-	openRouterModelsURL = "https://openrouter.ai/api/v1/models"
+// Re-export types from internal/api for backward compatibility
+type (
+	Message           = api.Message
+	ChatRequest       = api.ChatRequest
+	ChatResponse      = api.ChatResponse
+	Choice            = api.Choice
+	Model             = api.Model
+	ModelPricing      = api.ModelPricing
+	ModelArchitecture = api.ModelArchitecture
+	TopProviderInfo   = api.TopProviderInfo
+	PerRequestLimits  = api.PerRequestLimits
+	ModelsResponse    = api.ModelsResponse
+	GetModelsOptions  = api.ListModelsOptions
 )
 
-type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
-}
-
-type Choice struct {
-	Delta struct {
-		Content string `json:"content"`
-	} `json:"delta"`
-	Message struct {
-		Content string `json:"content"`
-	} `json:"message"`
-	FinishReason *string `json:"finish_reason"`
-}
-
-type ChatResponse struct {
-	Choices []Choice `json:"choices"`
-	Error   *struct {
-		Message string `json:"message"`
-	} `json:"error"`
-}
-
-// Models API types
-
-type ModelPricing struct {
-	Prompt     string `json:"prompt"`
-	Completion string `json:"completion"`
-	Request    string `json:"request"`
-	Image      string `json:"image"`
-	Web        string `json:"web_search,omitempty"`
-	Audio      string `json:"input_audio,omitempty"`
-}
-
-type ModelArchitecture struct {
-	Tokenizer        string   `json:"tokenizer"`
-	InstructType     *string  `json:"instruct_type"`
-	InputModalities  []string `json:"input_modalities"`
-	OutputModalities []string `json:"output_modalities"`
-}
-
-type TopProviderInfo struct {
-	ContextLength       *int `json:"context_length"`
-	MaxCompletionTokens *int `json:"max_completion_tokens"`
-	IsModerated         bool `json:"is_moderated"`
-}
-
-type PerRequestLimits struct {
-	PromptTokens     *int `json:"prompt_tokens"`
-	CompletionTokens *int `json:"completion_tokens"`
-}
-
-type Model struct {
-	ID                  string            `json:"id"`
-	Name                string            `json:"name"`
-	Created             int64             `json:"created"`
-	Description         string            `json:"description"`
-	ContextLength       *int              `json:"context_length"`
-	Pricing             ModelPricing      `json:"pricing"`
-	Architecture        ModelArchitecture `json:"architecture"`
-	TopProvider         TopProviderInfo   `json:"top_provider"`
-	PerRequestLimits    *PerRequestLimits `json:"per_request_limits"`
-	SupportedParameters []string          `json:"supported_parameters"`
-}
-
-type ModelsResponse struct {
-	Data []Model `json:"data"`
-}
-
-type GetModelsOptions struct {
-	Category            string
-	SupportedParameters string
-}
-
+// GetModels retrieves available models from the OpenRouter API.
 func GetModels(apiKey string, opts *GetModelsOptions) ([]Model, error) {
-	req, err := http.NewRequest("GET", openRouterModelsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("HTTP-Referer", "https://github.com/vstratful/openrouter-cli")
-	req.Header.Set("X-Title", "OpenRouter CLI")
-
-	if opts != nil {
-		q := req.URL.Query()
-		if opts.Category != "" {
-			q.Set("category", opts.Category)
-		}
-		if opts.SupportedParameters != "" {
-			q.Set("supported_parameters", opts.SupportedParameters)
-		}
-		req.URL.RawQuery = q.Encode()
-	}
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	var modelsResp ModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	return modelsResp.Data, nil
+	client := api.DefaultClient(apiKey)
+	return client.ListModels(context.Background(), opts)
 }
 
+// runPrompt sends a single prompt to the API and prints the response.
 func runPrompt(apiKey, model, prompt string, stream bool) error {
-	reqBody := ChatRequest{
+	client := api.DefaultClient(apiKey)
+	req := &api.ChatRequest{
 		Model: model,
-		Messages: []Message{
+		Messages: []api.Message{
 			{Role: "user", Content: prompt},
 		},
 		Stream: stream,
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", openRouterURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", "https://github.com/vstratful/openrouter-cli")
-	req.Header.Set("X-Title", "OpenRouter CLI")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
 	if stream {
-		return handleStreamResponse(resp.Body)
-	}
-	return handleNonStreamResponse(resp.Body)
-}
-
-func handleStreamResponse(body io.Reader) error {
-	scanner := bufio.NewScanner(body)
-	var fullContent strings.Builder
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
+		reader, err := client.ChatStream(context.Background(), req)
+		if err != nil {
+			return err
 		}
+		defer reader.Close()
 
-		// SSE format: "data: {...}"
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-
-		// Stream end signal
-		if data == "[DONE]" {
-			// Clear the raw output and render final markdown
-			content := fullContent.String()
-			if content != "" {
-				// Move cursor up and clear the raw text, then render markdown
-				// Use \r to return to line start, then print rendered content
-				fmt.Print("\r\033[K") // Clear current line
-
-				renderer, err := NewMarkdownRenderer(80)
-				if err == nil {
-					rendered, renderErr := renderer.Render(content)
-					if renderErr == nil {
-						fmt.Print(rendered)
-					} else {
-						// Fallback to raw content
-						fmt.Println(content)
-					}
-				} else {
-					// Fallback to raw content
-					fmt.Println(content)
-				}
-			} else {
-				fmt.Println()
+		// Read and print content as it streams
+		var fullContent string
+		for {
+			chunk, err := reader.Next()
+			if err != nil {
+				return err
 			}
-			break
+			if chunk == nil || chunk.Done {
+				break
+			}
+			fmt.Print(chunk.Content)
+			fullContent += chunk.Content
 		}
 
-		var response ChatResponse
-		if err := json.Unmarshal([]byte(data), &response); err != nil {
-			continue // Skip malformed chunks
+		// Render final markdown
+		if fullContent != "" {
+			fmt.Print("\r\033[K") // Clear current line
+			renderer, err := NewMarkdownRenderer(80)
+			if err == nil {
+				rendered, renderErr := renderer.Render(fullContent)
+				if renderErr == nil {
+					fmt.Print(rendered)
+					return nil
+				}
+			}
+			fmt.Println(fullContent)
+		} else {
+			fmt.Println()
 		}
-
-		if response.Error != nil {
-			return fmt.Errorf("API error: %s", response.Error.Message)
-		}
-
-		if len(response.Choices) > 0 {
-			content := response.Choices[0].Delta.Content
-			fullContent.WriteString(content)
-			fmt.Print(content)
-		}
+		return nil
 	}
 
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading stream: %w", err)
+	// Non-streaming request
+	resp, err := client.Chat(context.Background(), req)
+	if err != nil {
+		return err
 	}
 
-	return nil
-}
+	if len(resp.Choices) > 0 {
+		content := resp.Choices[0].Message.Content
 
-func handleNonStreamResponse(body io.Reader) error {
-	var response ChatResponse
-	if err := json.NewDecoder(body).Decode(&response); err != nil {
-		return fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if response.Error != nil {
-		return fmt.Errorf("API error: %s", response.Error.Message)
-	}
-
-	if len(response.Choices) > 0 {
-		content := response.Choices[0].Message.Content
-
-		// Try to render as markdown
 		renderer, err := NewMarkdownRenderer(80)
 		if err == nil {
 			rendered, renderErr := renderer.Render(content)
@@ -269,88 +95,40 @@ func handleNonStreamResponse(body io.Reader) error {
 				return nil
 			}
 		}
-
-		// Fallback to plain text
 		fmt.Println(content)
 	}
 
 	return nil
 }
 
-// streamChat streams chat responses to a channel for use with Bubble Tea TUI
+// streamChat streams chat responses to a channel for use with Bubble Tea TUI.
 func streamChat(apiKey, model string, messages []Message, chunks chan<- string) error {
 	defer close(chunks)
 
-	reqBody := ChatRequest{
+	client := api.DefaultClient(apiKey)
+	req := &api.ChatRequest{
 		Model:    model,
 		Messages: messages,
 		Stream:   true,
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
+	reader, err := client.ChatStream(context.Background(), req)
 	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+		return err
 	}
+	defer reader.Close()
 
-	req, err := http.NewRequest("POST", openRouterURL, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", "https://github.com/vstratful/openrouter-cli")
-	req.Header.Set("X-Title", "OpenRouter CLI")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if line == "" || strings.HasPrefix(line, ":") {
-			continue
+	for {
+		chunk, err := reader.Next()
+		if err != nil {
+			return err
 		}
-
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-
-		if data == "[DONE]" {
+		if chunk == nil || chunk.Done {
 			break
 		}
-
-		var response ChatResponse
-		if err := json.Unmarshal([]byte(data), &response); err != nil {
-			continue
+		if chunk.Content != "" {
+			chunks <- chunk.Content
 		}
-
-		if response.Error != nil {
-			return fmt.Errorf("API error: %s", response.Error.Message)
-		}
-
-		if len(response.Choices) > 0 {
-			content := response.Choices[0].Delta.Content
-			if content != "" {
-				chunks <- content
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("error reading stream: %w", err)
 	}
 
 	return nil

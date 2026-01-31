@@ -3,8 +3,11 @@ package cmd
 import (
 	"fmt"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/vstratful/openrouter-cli/config"
+	"github.com/vstratful/openrouter-cli/internal/tui"
+	"github.com/vstratful/openrouter-cli/internal/tui/picker"
 )
 
 var lastSession bool
@@ -89,4 +92,74 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	return runChatWithSession(apiKey, modelName, session)
+}
+
+// sessionPickerWrapper wraps the picker for standalone use
+type sessionPickerWrapper struct {
+	picker   picker.Model
+	selected *config.SessionSummary
+}
+
+func (m sessionPickerWrapper) Init() tea.Cmd {
+	return m.picker.Init()
+}
+
+func (m sessionPickerWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "ctrl+c", "q":
+			return m, tea.Quit
+
+		case "enter":
+			if summary := picker.GetSessionSummary(m.picker.SelectedItem()); summary != nil {
+				m.selected = summary
+			}
+			return m, tea.Quit
+
+		case "esc":
+			if m.picker.IsFiltering() {
+				var cmd tea.Cmd
+				m.picker, cmd = m.picker.Update(msg)
+				return m, cmd
+			}
+			return m, tea.Quit
+		}
+	}
+
+	var cmd tea.Cmd
+	m.picker, cmd = m.picker.Update(msg)
+	return m, cmd
+}
+
+func (m sessionPickerWrapper) View() string {
+	return m.picker.View() + "\n" + tui.HelpStyle.Render("Enter: select | Esc/q: cancel | /: filter")
+}
+
+// runSessionPicker shows the session picker TUI and returns the selected session
+func runSessionPicker() (*config.SessionSummary, error) {
+	summaries, err := config.ListSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(summaries) == 0 {
+		return nil, nil
+	}
+
+	model := sessionPickerWrapper{
+		picker: picker.NewSessionPicker(summaries, 0, 0),
+	}
+	p := tea.NewProgram(model, tea.WithAltScreen())
+
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	if m, ok := finalModel.(sessionPickerWrapper); ok {
+		return m.selected, nil
+	}
+
+	return nil, nil
 }
