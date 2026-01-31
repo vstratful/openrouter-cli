@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -34,14 +33,17 @@ type Model struct {
 	// API client
 	client api.Client
 
-	// State
-	messages       []api.Message
-	streaming      bool
+	// State machine
+	state          ChatState
+	escState       escState
 	currentContent string
 	err            error
 	ready          bool
 	width          int
 	height         int
+
+	// Messages
+	messages []api.Message
 
 	// Session
 	session   *config.Session
@@ -56,11 +58,6 @@ type Model struct {
 
 	// Input summary mode (for very long text)
 	showingSummary bool
-
-	// ESC double-press state
-	escPressedAt     time.Time
-	escTimeoutActive bool
-	escActionIsExit  bool
 
 	// Markdown renderer
 	mdRenderer *tui.MarkdownRenderer
@@ -86,8 +83,8 @@ func New(cfg Config) Model {
 	ta.Placeholder = "Type your message..."
 	ta.Focus()
 	ta.Prompt = ""
-	ta.CharLimit = 0 // No limit
-	ta.SetWidth(80)  // Default width, will be updated on WindowSizeMsg
+	ta.CharLimit = 0                              // No limit
+	ta.SetWidth(config.DefaultTerminalWidth)      // Default width, will be updated on WindowSizeMsg
 	ta.SetHeight(1)  // Start at 1 line, grows dynamically
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
@@ -100,7 +97,7 @@ func New(cfg Config) Model {
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	// Initialize markdown renderer (ignore error, will fallback to plain text)
-	mdRenderer, _ := tui.NewMarkdownRenderer(80)
+	mdRenderer, _ := tui.NewMarkdownRenderer(config.DefaultTerminalWidth)
 
 	m := Model{
 		textarea:     ta,
@@ -198,41 +195,51 @@ func (m *Model) SetErr(err error) {
 }
 
 // StartStream starts a new streaming request.
+// It creates a StreamState and returns a command that reads from the API.
+// The StreamState is stored in m.activeStream before the command runs.
 func (m *Model) StartStream() tea.Cmd {
-	return func() tea.Msg {
-		m.activeStream = NewStreamState()
+	// Create the stream state NOW, before returning
+	// This ensures it's part of the Model that gets returned from Update
+	m.activeStream = NewStreamState()
 
+	// Capture what we need in local variables to avoid pointer issues
+	stream := m.activeStream
+	client := m.client
+	modelName := m.modelName
+	messages := m.messages
+
+	return func() tea.Msg {
 		go func() {
 			ctx := context.Background()
-			reader, err := m.client.ChatStream(ctx, &api.ChatRequest{
-				Model:    m.modelName,
-				Messages: m.messages,
+			reader, err := client.ChatStream(ctx, &api.ChatRequest{
+				Model:    modelName,
+				Messages: messages,
 				Stream:   true,
 			})
 			if err != nil {
-				m.activeStream.SendError(err)
-				m.activeStream.Close()
+				stream.SendError(err)
+				stream.Close()
 				return
 			}
-			m.activeStream.SetReader(reader)
+			stream.SetReader(reader)
 
 			for {
 				chunk, err := reader.Next()
 				if err != nil {
-					m.activeStream.SendError(err)
+					stream.SendError(err)
 					break
 				}
 				if chunk == nil || chunk.Done {
 					break
 				}
 				if chunk.Content != "" {
-					m.activeStream.SendChunk(chunk.Content)
+					stream.SendChunk(chunk.Content)
 				}
 			}
-			m.activeStream.Close()
+			stream.Close()
 		}()
 
-		return waitForChunk(m.activeStream)
+		return waitForChunk(stream)
 	}
 }
 
@@ -265,8 +272,10 @@ func waitForChunk(stream *StreamState) tea.Msg {
 
 // WaitForChunk returns a command to wait for the next stream chunk.
 func (m *Model) WaitForChunk() tea.Cmd {
+	// Capture the stream directly to avoid pointer issues with m
+	stream := m.activeStream
 	return func() tea.Msg {
-		return waitForChunk(m.activeStream)
+		return waitForChunk(stream)
 	}
 }
 

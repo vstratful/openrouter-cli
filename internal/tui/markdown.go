@@ -2,6 +2,7 @@ package tui
 
 import (
 	"github.com/charmbracelet/glamour"
+	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
 // MarkdownRenderer wraps glamour for rendering markdown to styled terminal output.
@@ -13,7 +14,7 @@ type MarkdownRenderer struct {
 // NewMarkdownRenderer creates a new markdown renderer with the specified width.
 func NewMarkdownRenderer(width int) (*MarkdownRenderer, error) {
 	if width <= 0 {
-		width = 80
+		width = config.DefaultTerminalWidth
 	}
 
 	// Use DarkStyle explicitly to avoid terminal detection which can
@@ -35,7 +36,7 @@ func NewMarkdownRenderer(width int) (*MarkdownRenderer, error) {
 // SetWidth updates the word wrap width by creating a new renderer.
 func (m *MarkdownRenderer) SetWidth(width int) error {
 	if width <= 0 {
-		width = 80
+		width = config.DefaultTerminalWidth
 	}
 
 	// Only recreate if width changed

@@ -25,33 +25,36 @@ func (m Model) View() string {
 	modelInfo := tui.DimHelpStyle.Render(m.modelName)
 	sep := tui.DimHelpStyle.Render(" • ")
 
-	if m.streaming {
+	switch m.state {
+	case StateStreaming:
 		if m.currentContent == "" {
 			footer = modelInfo + sep + m.spinner.View() + " Thinking..."
 		} else {
 			footer = modelInfo + sep + m.spinner.View() + " Streaming..."
 		}
-	} else if m.escTimeoutActive {
+	case StateEscPending:
 		// Warning state
 		escAction := "clear input"
-		if m.escActionIsExit {
+		if m.escState.action == EscActionExit {
 			escAction = "exit"
 		}
 		footer = modelInfo + sep + tui.EscWarningStyle.Render("Press ⎋ again to "+escAction)
-	} else if m.history.IsBrowsing() {
-		// History browsing mode
-		historyPos := fmt.Sprintf("browsing history (%d/%d)",
-			m.history.HistoryLen()-m.history.Index(), m.history.HistoryLen())
-		footer = modelInfo + sep + tui.HistoryModeStyle.Render(historyPos) +
-			sep + tui.DimHelpStyle.Render("↑↓: navigate • Enter: use • ⎋: cancel")
-	} else {
-		// Normal state with styled hints
-		hints := []string{
-			tui.KeyHintStyle.Render("Enter") + tui.DimHelpStyle.Render(": send"),
-			tui.KeyHintStyle.Render("↑↓") + tui.DimHelpStyle.Render(": history"),
-			tui.KeyHintStyle.Render("/") + tui.DimHelpStyle.Render(": commands"),
+	case StateIdle:
+		if m.history.IsBrowsing() {
+			// History browsing mode
+			historyPos := fmt.Sprintf("browsing history (%d/%d)",
+				m.history.HistoryLen()-m.history.Index(), m.history.HistoryLen())
+			footer = modelInfo + sep + tui.HistoryModeStyle.Render(historyPos) +
+				sep + tui.DimHelpStyle.Render("↑↓: navigate • Enter: use • ⎋: cancel")
+		} else {
+			// Normal state with styled hints
+			hints := []string{
+				tui.KeyHintStyle.Render("Enter") + tui.DimHelpStyle.Render(": send"),
+				tui.KeyHintStyle.Render("↑↓") + tui.DimHelpStyle.Render(": history"),
+				tui.KeyHintStyle.Render("/") + tui.DimHelpStyle.Render(": commands"),
+			}
+			footer = modelInfo + sep + strings.Join(hints, sep)
 		}
-		footer = modelInfo + sep + strings.Join(hints, sep)
 	}
 
 	// Render autocomplete if showing
@@ -62,10 +65,13 @@ func (m Model) View() string {
 
 	// Style the input box - change border color based on state
 	currentInputStyle := tui.InputBoxStyle
-	if m.escTimeoutActive {
+	switch m.state {
+	case StateEscPending:
 		currentInputStyle = tui.EscWarningBoxStyle
-	} else if m.history.IsBrowsing() {
-		currentInputStyle = tui.HistoryBorderStyle
+	case StateIdle:
+		if m.history.IsBrowsing() {
+			currentInputStyle = tui.HistoryBorderStyle
+		}
 	}
 
 	// Render input box - show summary for very long text
@@ -158,7 +164,7 @@ func (m *Model) updateViewportContent() {
 		sb.WriteString("\n\n")
 	}
 
-	if m.streaming {
+	if m.state == StateStreaming {
 		sb.WriteString(tui.AssistantStyle.Render("Assistant: "))
 		if m.currentContent != "" {
 			sb.WriteString(m.renderMarkdown(m.currentContent, contentWidth-11))

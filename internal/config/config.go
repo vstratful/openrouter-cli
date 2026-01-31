@@ -21,6 +21,15 @@ const (
 
 	// DefaultTerminalWidth is the default terminal width when auto-detection fails.
 	DefaultTerminalWidth = 80
+
+	// EscDoublePressTimeout is the timeout for double-press ESC actions.
+	EscDoublePressTimeout = 2 * time.Second
+
+	// PreviewTruncateLength is the max length for session preview text.
+	PreviewTruncateLength = 50
+
+	// StreamChannelBuffer is the buffer size for stream chunk channels.
+	StreamChannelBuffer = 100
 )
 
 // Config holds the application configuration that is persisted to disk.
@@ -53,7 +62,8 @@ func NewAppConfig() *AppConfig {
 }
 
 // GetConfigDir returns the platform-specific config directory for openrouter.
-func GetConfigDir() (string, error) {
+// This is a variable to allow mocking in tests.
+var GetConfigDir = func() (string, error) {
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get user config directory: %w", err)

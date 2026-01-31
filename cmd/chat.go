@@ -6,8 +6,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vstratful/openrouter-cli/config"
 	"github.com/vstratful/openrouter-cli/internal/api"
+	"github.com/vstratful/openrouter-cli/internal/config"
 	"github.com/vstratful/openrouter-cli/internal/tui"
 	"github.com/vstratful/openrouter-cli/internal/tui/chat"
 	"github.com/vstratful/openrouter-cli/internal/tui/picker"

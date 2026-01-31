@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,9 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrSessionNotFound is returned when a session cannot be found.
+var ErrSessionNotFound = errors.New("session not found")
 
 // SessionMessage represents a message in the conversation.
 type SessionMessage struct {
@@ -112,7 +116,7 @@ func LoadSession(id string) (*Session, error) {
 	data, err := os.ReadFile(sessionPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("session not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", ErrSessionNotFound, id)
 		}
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
@@ -166,8 +170,8 @@ func ListSessions() ([]SessionSummary, error) {
 				break
 			}
 		}
-		if len(preview) > 50 {
-			preview = preview[:47] + "..."
+		if len(preview) > PreviewTruncateLength {
+			preview = preview[:PreviewTruncateLength-3] + "..."
 		}
 
 		summaries = append(summaries, SessionSummary{

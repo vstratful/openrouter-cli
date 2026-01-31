@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/vstratful/openrouter-cli/config"
+	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
 var (

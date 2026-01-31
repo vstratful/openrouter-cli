@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/vstratful/openrouter-cli/internal/api"
+	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
 // StreamState manages the state of an active stream.
@@ -19,7 +20,7 @@ type StreamState struct {
 // NewStreamState creates a new StreamState.
 func NewStreamState() *StreamState {
 	return &StreamState{
-		chunks:  make(chan string, 100),
+		chunks:  make(chan string, config.StreamChannelBuffer),
 		errChan: make(chan error, 1),
 	}
 }

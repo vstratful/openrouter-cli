@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vstratful/openrouter-cli/internal/api"
+	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
 // Update handles messages for the chat model.
@@ -41,36 +42,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyEsc:
-			isEmpty := strings.TrimSpace(m.textarea.Value()) == ""
-			now := time.Now()
-
-			if m.escTimeoutActive && now.Sub(m.escPressedAt) < 2*time.Second {
-				// Second ESC within 2s
-				if m.escActionIsExit {
-					// Exit the application
-					return m, tea.Quit
-				}
-				// Clear input
-				m.textarea.Reset()
-				m.updateTextareaState()
-				m.escTimeoutActive = false
-				m.history.Reset()
-				return m, nil
-			}
-
-			// First ESC - show prompt, start timer
-			m.escPressedAt = now
-			m.escTimeoutActive = true
-			m.escActionIsExit = isEmpty
-			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-				return EscTimeoutMsg{}
-			})
+			return m.handleEsc()
 		case tea.KeyCtrlU:
 			// Unix standard: clear line
 			m.textarea.Reset()
 			m.updateTextareaState()
 			m.history.Reset()
-			m.escTimeoutActive = false
+			m.state = StateIdle
 			return m, nil
 		case tea.KeyPgUp:
 			m.viewport.ViewUp()
@@ -79,7 +57,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.ViewDown()
 			return m, nil
 		case tea.KeyUp:
-			if !m.streaming {
+			if m.state != StateStreaming {
 				if strings.TrimSpace(m.textarea.Value()) == "" || m.history.IsBrowsing() {
 					// Navigate history when empty or already browsing history
 					if entry := m.history.Up(m.textarea.Value()); entry != "" {
@@ -95,7 +73,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case tea.KeyDown:
-			if !m.streaming {
+			if m.state != StateStreaming {
 				if strings.TrimSpace(m.textarea.Value()) == "" || m.history.IsBrowsing() {
 					// Navigate history when empty or already browsing history
 					if entry := m.history.Down(); entry != "" || m.history.Index() == -1 {
@@ -111,53 +89,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case tea.KeyEnter:
-			if m.streaming {
+			if m.state == StateStreaming {
 				return m, nil
 			}
-			userInput := strings.TrimSpace(m.textarea.Value())
-			if userInput == "" {
-				return m, nil
-			}
-
-			// Handle /resume command - signal to parent
-			if userInput == "/resume" {
-				m.textarea.Reset()
-				m.updateTextareaState()
-				m.ShowingPicker = true
-				return m, nil
-			}
-
-			// Handle /models command - signal to parent
-			if userInput == "/models" {
-				m.textarea.Reset()
-				m.updateTextareaState()
-				m.ShowingModelPicker = true
-				return m, nil
-			}
-
-			// Handle /quit and /exit commands
-			if userInput == "/quit" || userInput == "/exit" {
-				return m, tea.Quit
-			}
-
-			// Save to history
-			m.history.Add(userInput)
-			m.session.AppendHistory(userInput)
-			m.history.Reset()
-
-			// Save user message to session for resume
-			m.session.AppendMessage("user", userInput)
-
-			m.messages = append(m.messages, api.Message{Role: "user", Content: userInput})
-			m.textarea.Reset()
-			m.updateTextareaState()
-			m.streaming = true
-			m.currentContent = ""
-			m.err = nil
-
-			m.updateViewportContent()
-
-			return m, tea.Batch(m.StartStream(), m.spinner.Tick)
+			return m.handleSubmit()
 		}
 
 	case tea.MouseMsg:
@@ -181,7 +116,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update markdown renderer width for proper word wrapping
 		contentWidth := msg.Width - 4
 		if contentWidth < 10 {
-			contentWidth = 80
+			contentWidth = config.DefaultTerminalWidth
 		}
 		if m.mdRenderer != nil {
 			m.mdRenderer.SetWidth(contentWidth)
@@ -218,30 +153,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Save assistant message to session for resume
 			m.session.AppendMessage("assistant", m.currentContent)
 		}
-		m.streaming = false
+		m.state = StateIdle
 		m.currentContent = ""
 		m.updateViewportContent()
 		return m, nil
 
 	case StreamErrMsg:
 		m.err = msg.Err
-		m.streaming = false
+		m.state = StateIdle
 		m.currentContent = ""
 		m.updateViewportContent()
 		return m, nil
 
 	case EscTimeoutMsg:
-		m.escTimeoutActive = false
+		if m.state == StateEscPending {
+			m.state = StateIdle
+		}
 		return m, nil
 
 	case spinner.TickMsg:
-		if m.streaming {
+		if m.state == StateStreaming {
 			m.spinner, spCmd = m.spinner.Update(msg)
 			return m, spCmd
 		}
 	}
 
-	if !m.streaming {
+	if m.state != StateStreaming {
 		m.textarea, tiCmd = m.textarea.Update(msg)
 		m.autocomplete.Update(m.textarea.Value())
 		m.updateTextareaState()
@@ -249,6 +186,85 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
 	return m, tea.Batch(tiCmd, vpCmd, spCmd)
+}
+
+// handleEsc handles ESC key press with double-press detection.
+func (m Model) handleEsc() (tea.Model, tea.Cmd) {
+	isEmpty := strings.TrimSpace(m.textarea.Value()) == ""
+	now := time.Now()
+
+	if m.state == StateEscPending && now.Sub(m.escState.pressedAt) < config.EscDoublePressTimeout {
+		// Second ESC within timeout
+		if m.escState.action == EscActionExit {
+			return m, tea.Quit
+		}
+		// Clear input
+		m.textarea.Reset()
+		m.updateTextareaState()
+		m.state = StateIdle
+		m.history.Reset()
+		return m, nil
+	}
+
+	// First ESC - enter pending state
+	m.escState.pressedAt = now
+	if isEmpty {
+		m.escState.action = EscActionExit
+	} else {
+		m.escState.action = EscActionClear
+	}
+	m.state = StateEscPending
+	return m, tea.Tick(config.EscDoublePressTimeout, func(t time.Time) tea.Msg {
+		return EscTimeoutMsg{}
+	})
+}
+
+// handleSubmit handles enter key press to submit a message.
+func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
+	userInput := strings.TrimSpace(m.textarea.Value())
+	if userInput == "" {
+		return m, nil
+	}
+
+	// Handle /resume command - signal to parent
+	if userInput == "/resume" {
+		m.textarea.Reset()
+		m.updateTextareaState()
+		m.ShowingPicker = true
+		return m, nil
+	}
+
+	// Handle /models command - signal to parent
+	if userInput == "/models" {
+		m.textarea.Reset()
+		m.updateTextareaState()
+		m.ShowingModelPicker = true
+		return m, nil
+	}
+
+	// Handle /quit and /exit commands
+	if userInput == "/quit" || userInput == "/exit" {
+		return m, tea.Quit
+	}
+
+	// Save to history
+	m.history.Add(userInput)
+	m.session.AppendHistory(userInput)
+	m.history.Reset()
+
+	// Save user message to session for resume
+	m.session.AppendMessage("user", userInput)
+
+	m.messages = append(m.messages, api.Message{Role: "user", Content: userInput})
+	m.textarea.Reset()
+	m.updateTextareaState()
+	m.state = StateStreaming
+	m.currentContent = ""
+	m.err = nil
+
+	m.updateViewportContent()
+
+	return m, tea.Batch(m.StartStream(), m.spinner.Tick)
 }
 
 // updateAutocomplete handles key events when autocomplete is visible.

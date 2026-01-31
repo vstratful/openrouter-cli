@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -226,73 +225,27 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (*ChatResponse, err
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		// Check context before making request
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context error: %w", err)
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
-		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
-		}
-		c.setHeaders(httpReq)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("sending request: %w", err)
-			if c.shouldRetry(err, 0, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
-				}
-				continue
+	return doWithRetry(ctx, c,
+		func(ctx context.Context) (*http.Response, error) {
+			httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
+			if err != nil {
+				return nil, fmt.Errorf("creating request: %w", err)
 			}
-			return nil, lastErr
-		}
-
-		statusCode := resp.StatusCode
-
-		if !isSuccessStatus(statusCode) {
-			body, readErr := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			if readErr != nil {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Message:    fmt.Sprintf("failed to read error body: %v", readErr),
-				}
-			} else {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Body:       string(body),
-				}
+			c.setHeaders(httpReq)
+			return c.httpClient.Do(httpReq)
+		},
+		func(resp *http.Response) (*ChatResponse, error) {
+			defer resp.Body.Close()
+			var chatResp ChatResponse
+			if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+				return nil, fmt.Errorf("decoding response: %w", err)
 			}
-
-			if c.shouldRetry(nil, statusCode, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
-				}
-				continue
+			if chatResp.Error != nil {
+				return nil, &APIError{Message: chatResp.Error.Message}
 			}
-			return nil, lastErr
-		}
-
-		var chatResp ChatResponse
-		if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("decoding response: %w", err)
-		}
-		resp.Body.Close()
-
-		if chatResp.Error != nil {
-			return nil, &APIError{
-				Message: chatResp.Error.Message,
-			}
-		}
-
-		return &chatResp, nil
-	}
+			return &chatResp, nil
+		},
+	)
 }
 
 func (c *client) ChatStream(ctx context.Context, req *ChatRequest) (*StreamReader, error) {
@@ -305,133 +258,51 @@ func (c *client) ChatStream(ctx context.Context, req *ChatRequest) (*StreamReade
 		return nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		// Check context before making request
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context error: %w", err)
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
-		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
-		}
-		c.setHeaders(httpReq)
-
-		resp, err := c.streamClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("sending request: %w", err)
-			if c.shouldRetry(err, 0, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
-				}
-				continue
+	return doWithRetry(ctx, c,
+		func(ctx context.Context) (*http.Response, error) {
+			httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
+			if err != nil {
+				return nil, fmt.Errorf("creating request: %w", err)
 			}
-			return nil, lastErr
-		}
-
-		statusCode := resp.StatusCode
-
-		if !isSuccessStatus(statusCode) {
-			body, readErr := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			if readErr != nil {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Message:    fmt.Sprintf("failed to read error body: %v", readErr),
-				}
-			} else {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Body:       string(body),
-				}
-			}
-
-			if c.shouldRetry(nil, statusCode, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
-				}
-				continue
-			}
-			return nil, lastErr
-		}
-
-		return NewStreamReader(resp.Body), nil
-	}
+			c.setHeaders(httpReq)
+			return c.streamClient.Do(httpReq)
+		},
+		func(resp *http.Response) (*StreamReader, error) {
+			// Note: don't close resp.Body here, StreamReader owns it
+			return NewStreamReader(resp.Body), nil
+		},
+	)
 }
 
 func (c *client) ListModels(ctx context.Context, opts *ListModelsOptions) ([]Model, error) {
-	var lastErr error
-	for attempt := 0; ; attempt++ {
-		// Check context before making request
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context error: %w", err)
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/models", nil)
-		if err != nil {
-			return nil, fmt.Errorf("creating request: %w", err)
-		}
-		c.setHeaders(httpReq)
-
-		if opts != nil {
-			q := httpReq.URL.Query()
-			if opts.Category != "" {
-				q.Set("category", opts.Category)
+	return doWithRetry(ctx, c,
+		func(ctx context.Context) (*http.Response, error) {
+			httpReq, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/models", nil)
+			if err != nil {
+				return nil, fmt.Errorf("creating request: %w", err)
 			}
-			if opts.SupportedParameters != "" {
-				q.Set("supported_parameters", opts.SupportedParameters)
-			}
-			httpReq.URL.RawQuery = q.Encode()
-		}
+			c.setHeaders(httpReq)
 
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			lastErr = fmt.Errorf("sending request: %w", err)
-			if c.shouldRetry(err, 0, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
+			if opts != nil {
+				q := httpReq.URL.Query()
+				if opts.Category != "" {
+					q.Set("category", opts.Category)
 				}
-				continue
-			}
-			return nil, lastErr
-		}
-
-		statusCode := resp.StatusCode
-
-		if !isSuccessStatus(statusCode) {
-			body, readErr := io.ReadAll(resp.Body)
-			resp.Body.Close()
-
-			if readErr != nil {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Message:    fmt.Sprintf("failed to read error body: %v", readErr),
+				if opts.SupportedParameters != "" {
+					q.Set("supported_parameters", opts.SupportedParameters)
 				}
-			} else {
-				lastErr = &APIError{
-					StatusCode: statusCode,
-					Body:       string(body),
-				}
+				httpReq.URL.RawQuery = q.Encode()
 			}
 
-			if c.shouldRetry(nil, statusCode, attempt) {
-				if sleepErr := sleep(ctx, c.calculateBackoff(attempt)); sleepErr != nil {
-					return nil, sleepErr
-				}
-				continue
+			return c.httpClient.Do(httpReq)
+		},
+		func(resp *http.Response) ([]Model, error) {
+			defer resp.Body.Close()
+			var modelsResp ModelsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
+				return nil, fmt.Errorf("decoding response: %w", err)
 			}
-			return nil, lastErr
-		}
-
-		var modelsResp ModelsResponse
-		if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
-			resp.Body.Close()
-			return nil, fmt.Errorf("decoding response: %w", err)
-		}
-		resp.Body.Close()
-
-		return modelsResp.Data, nil
-	}
+			return modelsResp.Data, nil
+		},
+	)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/vstratful/openrouter-cli/internal/api"
+	"github.com/vstratful/openrouter-cli/internal/tui"
 )
 
 // Re-export types from internal/api for backward compatibility
@@ -63,7 +64,7 @@ func runPrompt(apiKey, model, prompt string, stream bool) error {
 		// Render final markdown
 		if fullContent != "" {
 			fmt.Print("\r\033[K") // Clear current line
-			renderer, err := NewMarkdownRenderer(80)
+			renderer, err := tui.NewMarkdownRenderer(80)
 			if err == nil {
 				rendered, renderErr := renderer.Render(fullContent)
 				if renderErr == nil {
@@ -87,7 +88,7 @@ func runPrompt(apiKey, model, prompt string, stream bool) error {
 	if len(resp.Choices) > 0 {
 		content := resp.Choices[0].Message.Content
 
-		renderer, err := NewMarkdownRenderer(80)
+		renderer, err := tui.NewMarkdownRenderer(80)
 		if err == nil {
 			rendered, renderErr := renderer.Render(content)
 			if renderErr == nil {
