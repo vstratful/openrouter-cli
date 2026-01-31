@@ -21,6 +21,9 @@ const (
 	// DefaultStreamTimeout is the default timeout for streaming requests.
 	DefaultStreamTimeout = 5 * time.Minute
 
+	// DefaultImageTimeout is the default timeout for image generation requests.
+	DefaultImageTimeout = 5 * time.Minute
+
 	// DefaultMaxRetries is the default maximum number of retries.
 	DefaultMaxRetries = 3
 
@@ -99,6 +102,19 @@ func DefaultClient(apiKey string) Client {
 	retryConfig := DefaultRetryConfig()
 	return NewClient(ClientConfig{
 		APIKey:  apiKey,
+		Referer: "https://github.com/vstratful/openrouter-cli",
+		Title:   "OpenRouter CLI",
+		Retry:   &retryConfig,
+	})
+}
+
+// ImageClient creates a new client configured for image generation with longer timeout.
+// Image generation uses non-streaming requests, so only Timeout is extended.
+func ImageClient(apiKey string) Client {
+	retryConfig := DefaultRetryConfig()
+	return NewClient(ClientConfig{
+		APIKey:  apiKey,
+		Timeout: DefaultImageTimeout,
 		Referer: "https://github.com/vstratful/openrouter-cli",
 		Title:   "OpenRouter CLI",
 		Retry:   &retryConfig,

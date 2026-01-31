@@ -14,6 +14,7 @@ var (
 	category            string
 	supportedParameters string
 	showDetails         bool
+	imageOnly           bool
 )
 
 var modelsCmd = &cobra.Command{
@@ -24,7 +25,8 @@ var modelsCmd = &cobra.Command{
 Examples:
   openrouter models                              # List all models
   openrouter models --category programming       # Filter by category
-  openrouter models --details                    # Show detailed info`,
+  openrouter models --details                    # Show detailed info
+  openrouter models --image-only                 # List image-capable models`,
 	RunE: runModels,
 }
 
@@ -33,6 +35,7 @@ func init() {
 	modelsCmd.Flags().StringVar(&category, "category", "", "Filter by category (e.g., programming, roleplay, marketing)")
 	modelsCmd.Flags().StringVar(&supportedParameters, "supported-parameters", "", "Filter by supported parameters")
 	modelsCmd.Flags().BoolVar(&showDetails, "details", false, "Show detailed model information")
+	modelsCmd.Flags().BoolVar(&imageOnly, "image-only", false, "Only show models that support image output")
 }
 
 func runModels(cmd *cobra.Command, args []string) error {
@@ -54,6 +57,17 @@ func runModels(cmd *cobra.Command, args []string) error {
 	models, err := client.ListModels(context.Background(), opts)
 	if err != nil {
 		return err
+	}
+
+	// Filter to image-only models if requested
+	if imageOnly {
+		var filtered []api.Model
+		for _, m := range models {
+			if m.IsImageModel() {
+				filtered = append(filtered, m)
+			}
+		}
+		models = filtered
 	}
 
 	if len(models) == 0 {

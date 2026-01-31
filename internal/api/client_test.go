@@ -23,7 +23,8 @@ func TestClient_Chat(t *testing.T) {
 				Choices: []Choice{
 					{
 						Message: struct {
-							Content string `json:"content"`
+							Content string         `json:"content"`
+							Images  []ImageContent `json:"images,omitempty"`
 						}{
 							Content: "Hello, world!",
 						},

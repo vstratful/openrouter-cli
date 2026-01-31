@@ -7,11 +7,30 @@ type Message struct {
 	Content string `json:"content"`
 }
 
+// ImageConfig represents configuration for image generation.
+type ImageConfig struct {
+	AspectRatio string `json:"aspect_ratio,omitempty"` // e.g., "1:1", "16:9"
+	Size        string `json:"size,omitempty"`         // e.g., "1K", "2K", "4K"
+}
+
 // ChatRequest represents a request to the chat completions API.
 type ChatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
+	Model       string       `json:"model"`
+	Messages    []Message    `json:"messages"`
+	Stream      bool         `json:"stream"`
+	Modalities  []string     `json:"modalities,omitempty"`
+	ImageConfig *ImageConfig `json:"image_config,omitempty"`
+}
+
+// ImageURL represents an image URL in the response.
+type ImageURL struct {
+	URL string `json:"url"` // data:image/png;base64,...
+}
+
+// ImageContent represents image content in the response.
+type ImageContent struct {
+	Type     string   `json:"type"`      // "image_url"
+	ImageURL ImageURL `json:"image_url"`
 }
 
 // Choice represents a completion choice in the response.
@@ -20,7 +39,8 @@ type Choice struct {
 		Content string `json:"content"`
 	} `json:"delta"`
 	Message struct {
-		Content string `json:"content"`
+		Content string         `json:"content"`
+		Images  []ImageContent `json:"images,omitempty"`
 	} `json:"message"`
 	FinishReason *string `json:"finish_reason"`
 }
@@ -87,4 +107,14 @@ type ModelsResponse struct {
 type ListModelsOptions struct {
 	Category            string
 	SupportedParameters string
+}
+
+// IsImageModel returns true if the model supports image output.
+func (m *Model) IsImageModel() bool {
+	for _, mod := range m.Architecture.OutputModalities {
+		if mod == "image" {
+			return true
+		}
+	}
+	return false
 }

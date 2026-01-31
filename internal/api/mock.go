@@ -51,7 +51,8 @@ func NewMockClient() *MockClient {
 				Choices: []Choice{
 					{
 						Message: struct {
-							Content string `json:"content"`
+							Content string         `json:"content"`
+							Images  []ImageContent `json:"images,omitempty"`
 						}{
 							Content: "mock response",
 						},
