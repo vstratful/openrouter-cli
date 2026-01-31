@@ -8,59 +8,26 @@ import (
 	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
-var (
-	model  string
-	prompt string
-	stream bool
-)
-
 var rootCmd = &cobra.Command{
 	Use:   "openrouter",
 	Short: "A CLI for interacting with OpenRouter API",
-	Long: `OpenRouter CLI allows you to interact with various AI models
-through the OpenRouter API directly from your terminal.
+	Long: `OpenRouter CLI - Interact with AI models via the OpenRouter API.
+
+Commands:
+  chat      Start interactive chat or send a single prompt
+  image     Generate images with image-capable models
+  models    List and explore available models
+  resume    Continue a previous chat session
 
 Examples:
-  openrouter                                        # Interactive chat mode
-  openrouter --model google/gemini-2.5-flash        # Chat with specific model
-  openrouter --prompt "Hello, world!"               # Single-turn mode
-  openrouter --model anthropic/claude-3.5-sonnet --prompt "Explain Go concurrency"`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get API key first - nothing else matters without it
-		apiKey, cfg, isFirstRun, err := getAPIKey()
-		if err != nil {
-			return err
-		}
-
-		// If this was first-run setup, show success and exit
-		if isFirstRun {
-			configPath, _ := config.GetConfigPath()
-			fmt.Printf("\nAPI key saved to %s\n", configPath)
-			fmt.Println("\nYou're all set! Try running:")
-			fmt.Println("  openrouter                    # Interactive chat")
-			fmt.Println("  openrouter -p \"Hello, world!\" # Single-turn mode")
-			return nil
-		}
-
-		// Use default model if not specified
-		if model == "" {
-			model = cfg.DefaultModel
-		}
-
-		// Interactive chat mode when no prompt provided
-		if prompt == "" {
-			return runChat(apiKey, model)
-		}
-
-		// Single-turn mode
-		return runPrompt(apiKey, model, prompt, stream)
-	},
+  openrouter chat                       # Interactive chat mode
+  openrouter chat -p "Hello"            # Single-turn query
+  openrouter models --details           # List available models
+  openrouter image -p "..." -f out.png  # Generate an image`,
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&model, "model", "m", "", "Model to use (default: "+config.DefaultModel+")")
-	rootCmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt for single-turn mode (omit for interactive chat)")
-	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response (default: true)")
+	// No flags on root - all commands define their own
 }
 
 func Execute() error {
@@ -103,4 +70,15 @@ func getAPIKey() (string, *config.Config, bool, error) {
 	}
 
 	return key, cfg, true, nil
+}
+
+// printFirstRunHelp prints the help message shown after first-run API key setup.
+func printFirstRunHelp() {
+	configPath, _ := config.GetConfigPath()
+	fmt.Printf("\nAPI key saved to %s\n", configPath)
+	fmt.Println("\nYou're all set! Try running:")
+	fmt.Println("  openrouter chat                       # Interactive chat")
+	fmt.Println("  openrouter chat -p \"Hello, world!\"    # Single-turn mode")
+	fmt.Println("  openrouter models                     # List available models")
+	fmt.Println("  openrouter image -p \"...\" -f out.png  # Generate images")
 }

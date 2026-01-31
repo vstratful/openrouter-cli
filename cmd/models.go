@@ -15,6 +15,8 @@ var (
 	supportedParameters string
 	showDetails         bool
 	imageOnly           bool
+	textOnly            bool
+	filterStr           string
 )
 
 var modelsCmd = &cobra.Command{
@@ -24,18 +26,22 @@ var modelsCmd = &cobra.Command{
 
 Examples:
   openrouter models                              # List all models
+  openrouter models --filter claude              # Filter by name/ID
   openrouter models --category programming       # Filter by category
   openrouter models --details                    # Show detailed info
-  openrouter models --image-only                 # List image-capable models`,
+  openrouter models --image-only                 # List image-capable models
+  openrouter models --text-only                  # List text-only models`,
 	RunE: runModels,
 }
 
 func init() {
 	rootCmd.AddCommand(modelsCmd)
+	modelsCmd.Flags().StringVarP(&filterStr, "filter", "f", "", "Filter models by ID or name (case-insensitive)")
 	modelsCmd.Flags().StringVar(&category, "category", "", "Filter by category (e.g., programming, roleplay, marketing)")
 	modelsCmd.Flags().StringVar(&supportedParameters, "supported-parameters", "", "Filter by supported parameters")
 	modelsCmd.Flags().BoolVar(&showDetails, "details", false, "Show detailed model information")
 	modelsCmd.Flags().BoolVar(&imageOnly, "image-only", false, "Only show models that support image output")
+	modelsCmd.Flags().BoolVar(&textOnly, "text-only", false, "Only show models that support text output (no image)")
 }
 
 func runModels(cmd *cobra.Command, args []string) error {
@@ -59,11 +65,35 @@ func runModels(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Filter by name/ID if requested
+	if filterStr != "" {
+		filterLower := strings.ToLower(filterStr)
+		var filtered []api.Model
+		for _, m := range models {
+			if strings.Contains(strings.ToLower(m.ID), filterLower) ||
+				strings.Contains(strings.ToLower(m.Name), filterLower) {
+				filtered = append(filtered, m)
+			}
+		}
+		models = filtered
+	}
+
 	// Filter to image-only models if requested
 	if imageOnly {
 		var filtered []api.Model
 		for _, m := range models {
 			if m.IsImageModel() {
+				filtered = append(filtered, m)
+			}
+		}
+		models = filtered
+	}
+
+	// Filter to text-only models if requested
+	if textOnly {
+		var filtered []api.Model
+		for _, m := range models {
+			if m.IsTextOnlyModel() {
 				filtered = append(filtered, m)
 			}
 		}

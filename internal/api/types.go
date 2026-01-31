@@ -118,3 +118,15 @@ func (m *Model) IsImageModel() bool {
 	}
 	return false
 }
+
+// IsTextOnlyModel returns true if the model supports text output but not image output.
+func (m *Model) IsTextOnlyModel() bool {
+	hasText := false
+	for _, mod := range m.Architecture.OutputModalities {
+		if mod == "text" {
+			hasText = true
+			break
+		}
+	}
+	return hasText && !m.IsImageModel()
+}

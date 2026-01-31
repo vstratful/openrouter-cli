@@ -10,7 +10,10 @@ import (
 	"github.com/vstratful/openrouter-cli/internal/tui/picker"
 )
 
-var lastSession bool
+var (
+	lastSession    bool
+	resumeModelArg string
+)
 
 var resumeCmd = &cobra.Command{
 	Use:   "resume [session-id]",
@@ -27,6 +30,7 @@ Usage:
 func init() {
 	rootCmd.AddCommand(resumeCmd)
 	resumeCmd.Flags().BoolVar(&lastSession, "last", false, "Resume most recent session")
+	resumeCmd.Flags().StringVarP(&resumeModelArg, "model", "m", "", "Model to use (overrides session's model)")
 }
 
 func runResume(cmd *cobra.Command, args []string) error {
@@ -36,11 +40,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if isFirstRun {
-		configPath, _ := config.GetConfigPath()
-		fmt.Printf("\nAPI key saved to %s\n", configPath)
-		fmt.Println("\nYou're all set! Try running:")
-		fmt.Println("  openrouter                    # Interactive chat")
-		fmt.Println("  openrouter -p \"Hello, world!\" # Single-turn mode")
+		printFirstRunHelp()
 		return nil
 	}
 
@@ -70,7 +70,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 			summaries, _ := config.ListSessions()
 			if len(summaries) == 0 {
 				fmt.Println("No saved sessions found.")
-				fmt.Println("Start a new chat with: openrouter")
+				fmt.Println("Start a new chat with: openrouter chat")
 				return nil
 			}
 			// User quit without selecting
@@ -83,7 +83,7 @@ func runResume(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine model: if user provided -m flag, use that; otherwise use session's model
-	modelName := model
+	modelName := resumeModelArg
 	if modelName == "" {
 		modelName = session.Model
 	}
