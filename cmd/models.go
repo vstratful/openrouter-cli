@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vstratful/openrouter-cli/internal/api"
 	"github.com/vstratful/openrouter-cli/internal/tui/picker"
 )
 
@@ -43,12 +45,13 @@ func runModels(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	opts := &GetModelsOptions{
+	opts := &api.ListModelsOptions{
 		Category:            category,
 		SupportedParameters: supportedParameters,
 	}
 
-	models, err := GetModels(apiKey, opts)
+	client := api.DefaultClient(apiKey)
+	models, err := client.ListModels(context.Background(), opts)
 	if err != nil {
 		return err
 	}
@@ -71,11 +74,11 @@ func runModels(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func printModelSummary(m Model) {
+func printModelSummary(m api.Model) {
 	fmt.Printf("%-50s %s\n", m.ID, m.Name)
 }
 
-func printModelDetails(m Model) {
+func printModelDetails(m api.Model) {
 	fmt.Printf("ID: %s\n", m.ID)
 	fmt.Printf("Name: %s\n", m.Name)
 

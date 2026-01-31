@@ -19,6 +19,10 @@ const (
 	// DefaultStreamTimeout is the default timeout for streaming requests.
 	DefaultStreamTimeout = 5 * time.Minute
 
+	// StreamChunkTimeout is the timeout for waiting for a single chunk.
+	// If no data is received within this time, the stream is considered hung.
+	StreamChunkTimeout = 30 * time.Second
+
 	// DefaultTerminalWidth is the default terminal width when auto-detection fails.
 	DefaultTerminalWidth = 80
 

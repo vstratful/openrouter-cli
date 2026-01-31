@@ -2,6 +2,8 @@ package chat
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -38,6 +40,7 @@ type Model struct {
 	escState       escState
 	currentContent string
 	err            error
+	sessionErr     error // Session save error (shown as warning in footer)
 	ready          bool
 	width          int
 	height         int
@@ -61,6 +64,10 @@ type Model struct {
 
 	// Markdown renderer
 	mdRenderer *tui.MarkdownRenderer
+
+	// Rendered content cache (to avoid re-rendering completed messages)
+	renderedHistory string
+	renderedWidth   int
 
 	// Stream state
 	activeStream *StreamState
@@ -182,6 +189,9 @@ func (m *Model) SetSession(session *config.Session) {
 	if session.Model != "" {
 		m.modelName = session.Model
 	}
+	// Invalidate cache - will be rebuilt on next updateViewportContent
+	m.renderedHistory = ""
+	m.renderedWidth = 0
 }
 
 // Err returns the last error.
@@ -267,6 +277,8 @@ func waitForChunk(stream *StreamState) tea.Msg {
 			return StreamErrMsg{Err: err}
 		}
 		return waitForChunk(stream)
+	case <-time.After(config.StreamChunkTimeout):
+		return StreamErrMsg{Err: errors.New("stream timeout: no data received for 30 seconds")}
 	}
 }
 

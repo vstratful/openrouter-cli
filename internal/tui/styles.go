@@ -51,6 +51,9 @@ var (
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(lipgloss.Color("#A78BFA")).
 				Padding(0, 1)
+
+	SessionWarningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFA500")) // Orange - warning but not error
 )
 
 // Picker styles

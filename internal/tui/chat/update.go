@@ -149,9 +149,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case StreamDoneMsg:
 		if m.currentContent != "" {
-			m.messages = append(m.messages, api.Message{Role: "assistant", Content: m.currentContent})
+			msg := api.Message{Role: "assistant", Content: m.currentContent}
+			m.messages = append(m.messages, msg)
+			m.appendRenderedMessage(msg) // Add to rendered cache
 			// Save assistant message to session for resume
-			m.session.AppendMessage("assistant", m.currentContent)
+			if err := m.session.AppendMessage("assistant", m.currentContent); err != nil {
+				m.sessionErr = err
+			} else {
+				m.sessionErr = nil // Clear on success
+			}
 		}
 		m.state = StateIdle
 		m.currentContent = ""
@@ -227,7 +233,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle /resume command - signal to parent
-	if userInput == "/resume" {
+	if userInput == CmdResume {
 		m.textarea.Reset()
 		m.updateTextareaState()
 		m.ShowingPicker = true
@@ -235,7 +241,7 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle /models command - signal to parent
-	if userInput == "/models" {
+	if userInput == CmdModels {
 		m.textarea.Reset()
 		m.updateTextareaState()
 		m.ShowingModelPicker = true
@@ -243,19 +249,27 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 	}
 
 	// Handle /quit and /exit commands
-	if userInput == "/quit" || userInput == "/exit" {
+	if userInput == CmdQuit || userInput == CmdExit {
 		return m, tea.Quit
 	}
 
 	// Save to history
 	m.history.Add(userInput)
-	m.session.AppendHistory(userInput)
+	if err := m.session.AppendHistory(userInput); err != nil {
+		m.sessionErr = err
+	}
 	m.history.Reset()
 
 	// Save user message to session for resume
-	m.session.AppendMessage("user", userInput)
+	if err := m.session.AppendMessage("user", userInput); err != nil {
+		m.sessionErr = err
+	} else {
+		m.sessionErr = nil // Clear on success
+	}
 
-	m.messages = append(m.messages, api.Message{Role: "user", Content: userInput})
+	msg := api.Message{Role: "user", Content: userInput}
+	m.messages = append(m.messages, msg)
+	m.appendRenderedMessage(msg) // Add to rendered cache
 	m.textarea.Reset()
 	m.updateTextareaState()
 	m.state = StateStreaming

@@ -42,19 +42,19 @@ func (r *StreamReader) Next() (*StreamChunk, error) {
 		line := r.scanner.Text()
 
 		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, ":") {
+		if line == "" || strings.HasPrefix(line, SSECommentPrefix) {
 			continue
 		}
 
 		// SSE format: "data: {...}"
-		if !strings.HasPrefix(line, "data: ") {
+		if !strings.HasPrefix(line, SSEDataPrefix) {
 			continue
 		}
 
-		data := strings.TrimPrefix(line, "data: ")
+		data := strings.TrimPrefix(line, SSEDataPrefix)
 
 		// Stream end signal
-		if data == "[DONE]" {
+		if data == StreamEndSignal {
 			r.done = true
 			return &StreamChunk{Done: true}, nil
 		}

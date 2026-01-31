@@ -94,17 +94,17 @@ func runResume(cmd *cobra.Command, args []string) error {
 	return runChatWithSession(apiKey, modelName, session)
 }
 
-// sessionPickerWrapper wraps the picker for standalone use
-type sessionPickerWrapper struct {
+// sessionPickerModel is a standalone picker for the resume command.
+type sessionPickerModel struct {
 	picker   picker.Model
 	selected *config.SessionSummary
 }
 
-func (m sessionPickerWrapper) Init() tea.Cmd {
+func (m sessionPickerModel) Init() tea.Cmd {
 	return m.picker.Init()
 }
 
-func (m sessionPickerWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m sessionPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -132,7 +132,7 @@ func (m sessionPickerWrapper) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m sessionPickerWrapper) View() string {
+func (m sessionPickerModel) View() string {
 	return m.picker.View() + "\n" + tui.HelpStyle.Render("Enter: select | Esc/q: cancel | /: filter")
 }
 
@@ -147,18 +147,18 @@ func runSessionPicker() (*config.SessionSummary, error) {
 		return nil, nil
 	}
 
-	model := sessionPickerWrapper{
+	m := sessionPickerModel{
 		picker: picker.NewSessionPicker(summaries, 0, 0),
 	}
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
 	}
 
-	if m, ok := finalModel.(sessionPickerWrapper); ok {
-		return m.selected, nil
+	if fm, ok := finalModel.(sessionPickerModel); ok {
+		return fm.selected, nil
 	}
 
 	return nil, nil

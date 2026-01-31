@@ -8,27 +8,6 @@ import (
 	"github.com/vstratful/openrouter-cli/internal/tui"
 )
 
-// Re-export types from internal/api for backward compatibility
-type (
-	Message           = api.Message
-	ChatRequest       = api.ChatRequest
-	ChatResponse      = api.ChatResponse
-	Choice            = api.Choice
-	Model             = api.Model
-	ModelPricing      = api.ModelPricing
-	ModelArchitecture = api.ModelArchitecture
-	TopProviderInfo   = api.TopProviderInfo
-	PerRequestLimits  = api.PerRequestLimits
-	ModelsResponse    = api.ModelsResponse
-	GetModelsOptions  = api.ListModelsOptions
-)
-
-// GetModels retrieves available models from the OpenRouter API.
-func GetModels(apiKey string, opts *GetModelsOptions) ([]Model, error) {
-	client := api.DefaultClient(apiKey)
-	return client.ListModels(context.Background(), opts)
-}
-
 // runPrompt sends a single prompt to the API and prints the response.
 func runPrompt(apiKey, model, prompt string, stream bool) error {
 	client := api.DefaultClient(apiKey)
@@ -97,39 +76,6 @@ func runPrompt(apiKey, model, prompt string, stream bool) error {
 			}
 		}
 		fmt.Println(content)
-	}
-
-	return nil
-}
-
-// streamChat streams chat responses to a channel for use with Bubble Tea TUI.
-func streamChat(apiKey, model string, messages []Message, chunks chan<- string) error {
-	defer close(chunks)
-
-	client := api.DefaultClient(apiKey)
-	req := &api.ChatRequest{
-		Model:    model,
-		Messages: messages,
-		Stream:   true,
-	}
-
-	reader, err := client.ChatStream(context.Background(), req)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	for {
-		chunk, err := reader.Next()
-		if err != nil {
-			return err
-		}
-		if chunk == nil || chunk.Done {
-			break
-		}
-		if chunk.Content != "" {
-			chunks <- chunk.Content
-		}
 	}
 
 	return nil

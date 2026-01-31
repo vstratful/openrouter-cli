@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vstratful/openrouter-cli/internal/api"
 	"github.com/vstratful/openrouter-cli/internal/tui"
 )
 
@@ -24,6 +25,12 @@ func (m Model) View() string {
 	var footer string
 	modelInfo := tui.DimHelpStyle.Render(m.modelName)
 	sep := tui.DimHelpStyle.Render(" • ")
+
+	// Session warning (if session save failed)
+	var sessionWarning string
+	if m.sessionErr != nil {
+		sessionWarning = sep + tui.SessionWarningStyle.Render("⚠ Session save failed")
+	}
 
 	switch m.state {
 	case StateStreaming:
@@ -56,6 +63,7 @@ func (m Model) View() string {
 			footer = modelInfo + sep + strings.Join(hints, sep)
 		}
 	}
+	footer += sessionWarning
 
 	// Render autocomplete if showing
 	var autocompleteView string
@@ -145,29 +153,59 @@ func (m *Model) renderMarkdown(content string, width int) string {
 	return strings.TrimRight(rendered, "\n")
 }
 
+// contentWidth returns the available width for content rendering.
+func (m *Model) contentWidth() int {
+	width := m.width - 2
+	if width < 10 {
+		width = 80
+	}
+	return width
+}
+
+// renderSingleMessage renders a single message and returns the rendered string.
+func (m *Model) renderSingleMessage(msg api.Message) string {
+	var sb strings.Builder
+	if msg.Role == "user" {
+		sb.WriteString(tui.UserStyle.Render("You: "))
+		sb.WriteString(m.wrapText(msg.Content, m.contentWidth()-5))
+	} else {
+		sb.WriteString(tui.AssistantStyle.Render("Assistant: "))
+		sb.WriteString(m.renderMarkdown(msg.Content, m.contentWidth()-11))
+	}
+	sb.WriteString("\n\n")
+	return sb.String()
+}
+
+// rebuildRenderedHistory re-renders all completed messages from scratch.
+// Called on resize or session load.
+func (m *Model) rebuildRenderedHistory() {
+	var sb strings.Builder
+	for _, msg := range m.messages {
+		sb.WriteString(m.renderSingleMessage(msg))
+	}
+	m.renderedHistory = sb.String()
+	m.renderedWidth = m.width
+}
+
+// appendRenderedMessage renders and appends a single message to the cache.
+func (m *Model) appendRenderedMessage(msg api.Message) {
+	m.renderedHistory += m.renderSingleMessage(msg)
+}
+
 // updateViewportContent updates the viewport with current messages.
 func (m *Model) updateViewportContent() {
-	var sb strings.Builder
-	contentWidth := m.width - 2
-	if contentWidth < 10 {
-		contentWidth = 80
+	// Check if width changed (need full re-render)
+	if m.renderedWidth != m.width {
+		m.rebuildRenderedHistory()
 	}
 
-	for _, msg := range m.messages {
-		if msg.Role == "user" {
-			sb.WriteString(tui.UserStyle.Render("You: "))
-			sb.WriteString(m.wrapText(msg.Content, contentWidth-5))
-		} else {
-			sb.WriteString(tui.AssistantStyle.Render("Assistant: "))
-			sb.WriteString(m.renderMarkdown(msg.Content, contentWidth-11))
-		}
-		sb.WriteString("\n\n")
-	}
+	var sb strings.Builder
+	sb.WriteString(m.renderedHistory) // Use cached content for completed messages
 
 	if m.state == StateStreaming {
 		sb.WriteString(tui.AssistantStyle.Render("Assistant: "))
 		if m.currentContent != "" {
-			sb.WriteString(m.renderMarkdown(m.currentContent, contentWidth-11))
+			sb.WriteString(m.renderMarkdown(m.currentContent, m.contentWidth()-11))
 		}
 		sb.WriteString("▋")
 	}

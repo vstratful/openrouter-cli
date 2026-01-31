@@ -37,4 +37,3 @@ go build -o openrouter && go vet ./... && go test ./...
 - `internal/tui/` - Bubble Tea TUI components
   - `chat/` - Chat interface (model, update, view, history, autocomplete)
   - `picker/` - Generic picker for models and sessions
-- `config/` - Backward compatibility re-exports
