@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-const openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
+const (
+	openRouterURL       = "https://openrouter.ai/api/v1/chat/completions"
+	openRouterModelsURL = "https://openrouter.ai/api/v1/models"
+)
 
 type Message struct {
 	Role    string `json:"role"`
@@ -38,6 +41,98 @@ type ChatResponse struct {
 	Error   *struct {
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+// Models API types
+
+type ModelPricing struct {
+	Prompt     string `json:"prompt"`
+	Completion string `json:"completion"`
+	Request    string `json:"request"`
+	Image      string `json:"image"`
+	Web        string `json:"web_search,omitempty"`
+	Audio      string `json:"input_audio,omitempty"`
+}
+
+type ModelArchitecture struct {
+	Tokenizer        string   `json:"tokenizer"`
+	InstructType     *string  `json:"instruct_type"`
+	InputModalities  []string `json:"input_modalities"`
+	OutputModalities []string `json:"output_modalities"`
+}
+
+type TopProviderInfo struct {
+	ContextLength       *int `json:"context_length"`
+	MaxCompletionTokens *int `json:"max_completion_tokens"`
+	IsModerated         bool `json:"is_moderated"`
+}
+
+type PerRequestLimits struct {
+	PromptTokens     *int `json:"prompt_tokens"`
+	CompletionTokens *int `json:"completion_tokens"`
+}
+
+type Model struct {
+	ID                  string            `json:"id"`
+	Name                string            `json:"name"`
+	Created             int64             `json:"created"`
+	Description         string            `json:"description"`
+	ContextLength       *int              `json:"context_length"`
+	Pricing             ModelPricing      `json:"pricing"`
+	Architecture        ModelArchitecture `json:"architecture"`
+	TopProvider         TopProviderInfo   `json:"top_provider"`
+	PerRequestLimits    *PerRequestLimits `json:"per_request_limits"`
+	SupportedParameters []string          `json:"supported_parameters"`
+}
+
+type ModelsResponse struct {
+	Data []Model `json:"data"`
+}
+
+type GetModelsOptions struct {
+	Category            string
+	SupportedParameters string
+}
+
+func GetModels(apiKey string, opts *GetModelsOptions) ([]Model, error) {
+	req, err := http.NewRequest("GET", openRouterModelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("HTTP-Referer", "https://github.com/vstratful/openrouter-cli")
+	req.Header.Set("X-Title", "OpenRouter CLI")
+
+	if opts != nil {
+		q := req.URL.Query()
+		if opts.Category != "" {
+			q.Set("category", opts.Category)
+		}
+		if opts.SupportedParameters != "" {
+			q.Set("supported_parameters", opts.SupportedParameters)
+		}
+		req.URL.RawQuery = q.Encode()
+	}
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var modelsResp ModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return modelsResp.Data, nil
 }
 
 func runPrompt(apiKey, model, prompt string, stream bool) error {
