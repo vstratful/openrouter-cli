@@ -12,7 +12,7 @@ type Command struct {
 func AvailableCommands() []Command {
 	return []Command{
 		{Name: "/exit", Description: "Exit the application"},
-		{Name: "/model", Description: "Change the AI model"},
+		{Name: "/models", Description: "Change the AI model"},
 		{Name: "/quit", Description: "Exit the application"},
 		{Name: "/resume", Description: "Resume a previous session"},
 	}

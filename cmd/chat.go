@@ -63,15 +63,21 @@ type chatModel struct {
 	showingAutocomplete bool
 	autocompleteIndex   int
 	filteredCommands    []Command
+
+	// Input summary mode (for very long text)
+	showingSummary bool
 }
+
+const maxTextareaHeight = 5
 
 func newChatModel(apiKey, modelName string, existingSession *config.Session) chatModel {
 	ta := textarea.New()
 	ta.Placeholder = "Type your message..."
 	ta.Focus()
 	ta.Prompt = ""
-	ta.CharLimit = 4096
-	ta.SetHeight(3)
+	ta.CharLimit = 0 // No limit
+	ta.SetWidth(80)  // Default width, will be updated on WindowSizeMsg
+	ta.SetHeight(1)  // Start at 1 line, grows dynamically
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 	// Disable built-in arrow key handling for history navigation
@@ -138,17 +144,26 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateAutocomplete(msg)
 		}
 
+		// Handle backspace in summary mode - clear the input
+		if m.showingSummary && (msg.Type == tea.KeyBackspace || msg.Type == tea.KeyDelete) {
+			m.textarea.Reset()
+			m.updateTextareaState()
+			return m, nil
+		}
+
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyUp:
 			if !m.streaming {
 				m.navigateHistoryUp()
+				m.updateTextareaState()
 			}
 			return m, nil
 		case tea.KeyDown:
 			if !m.streaming {
 				m.navigateHistoryDown()
+				m.updateTextareaState()
 			}
 			return m, nil
 		case tea.KeyEnter:
@@ -163,12 +178,14 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Handle /resume command
 			if userInput == "/resume" {
 				m.textarea.Reset()
+				m.updateTextareaState()
 				return m.showSessionPicker()
 			}
 
-			// Handle /model command
-			if userInput == "/model" {
+			// Handle /models command
+			if userInput == "/models" {
 				m.textarea.Reset()
+				m.updateTextareaState()
 				return m.showModelPicker()
 			}
 
@@ -190,6 +207,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			m.messages = append(m.messages, Message{Role: "user", Content: userInput})
 			m.textarea.Reset()
+			m.updateTextareaState()
 			m.streaming = true
 			m.currentContent = ""
 			m.err = nil
@@ -203,9 +221,15 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 
-		// Layout: header(1) + viewport + inputBox(3 + 2 border) + footer(1)
+		// Account for border and padding in textarea width
+		m.textarea.SetWidth(msg.Width - 8)
+
+		// Calculate dynamic textarea height
+		m.updateTextareaState()
+		textareaHeight := m.textarea.Height()
+
 		headerHeight := 1
-		inputBoxHeight := 5 // textarea(3) + border(2)
+		inputBoxHeight := textareaHeight + 2 // textarea + border
 		footerHeight := 1
 		verticalMargins := headerHeight + inputBoxHeight + footerHeight + 1
 
@@ -218,8 +242,6 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.Height = msg.Height - verticalMargins
 		}
 
-		// Account for border and padding in textarea width
-		m.textarea.SetWidth(msg.Width - 8)
 		m.updateViewportContent()
 
 	case streamChunkMsg:
@@ -255,6 +277,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if !m.streaming {
 		m.textarea, tiCmd = m.textarea.Update(msg)
 		m.updateAutocompleteState()
+		m.updateTextareaState()
 	}
 	m.viewport, vpCmd = m.viewport.Update(msg)
 
@@ -299,6 +322,76 @@ func (m *chatModel) navigateHistoryDown() {
 		// At bottom of history, restore draft
 		m.historyIndex = -1
 		m.textarea.SetValue(m.currentDraft)
+	}
+}
+
+// calculateVisualLines calculates how many visual rows the content takes
+func (m *chatModel) calculateVisualLines() int {
+	content := m.textarea.Value()
+	if content == "" {
+		return 1
+	}
+
+	// Use a slightly smaller width than the textarea to be conservative
+	// This accounts for any internal padding the textarea might use
+	textWidth := m.width - 10
+	if textWidth <= 0 {
+		return 1
+	}
+
+	totalLines := 0
+	for _, line := range strings.Split(content, "\n") {
+		if len(line) == 0 {
+			totalLines++
+			continue
+		}
+		// Count runes (not bytes) for proper unicode handling
+		runeCount := 0
+		for range line {
+			runeCount++
+		}
+		// Calculate how many visual rows this line needs
+		rows := (runeCount + textWidth - 1) / textWidth
+		if rows == 0 {
+			rows = 1
+		}
+		totalLines += rows
+	}
+	return totalLines
+}
+
+// updateTextareaState updates textarea height and summary state
+func (m *chatModel) updateTextareaState() {
+	visualLines := m.calculateVisualLines()
+
+	// Show summary for very long text (more than 2x max height)
+	if visualLines > maxTextareaHeight*2 {
+		m.showingSummary = true
+		return
+	}
+	m.showingSummary = false
+
+	// Set textarea height to match content (capped at max)
+	// Add 1 line buffer when there's wrapped content to prevent scroll issues
+	newHeight := visualLines
+	if visualLines > 1 {
+		newHeight++ // Buffer for potential calculation mismatch
+	}
+	if newHeight > maxTextareaHeight {
+		newHeight = maxTextareaHeight
+	}
+	if newHeight < 1 {
+		newHeight = 1
+	}
+	m.textarea.SetHeight(newHeight)
+
+	// Update viewport to account for new input height
+	if m.ready && m.height > 0 {
+		headerHeight := 1
+		inputBoxHeight := newHeight + 2 // textarea + border
+		footerHeight := 1
+		verticalMargins := headerHeight + inputBoxHeight + footerHeight + 1
+		m.viewport.Height = m.height - verticalMargins
 	}
 }
 
@@ -357,6 +450,7 @@ func (m chatModel) updateAutocomplete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Fill selected command into textarea
 		if m.autocompleteIndex < len(m.filteredCommands) {
 			m.textarea.SetValue(m.filteredCommands[m.autocompleteIndex].Name)
+			m.updateTextareaState()
 		}
 		m.showingAutocomplete = false
 		return m, nil
@@ -366,6 +460,7 @@ func (m chatModel) updateAutocomplete(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.textarea, cmd = m.textarea.Update(msg)
 		m.updateAutocompleteState()
+		m.updateTextareaState()
 		return m, cmd
 	}
 }
@@ -584,20 +679,23 @@ func (m chatModel) View() string {
 		return m.pickerModel.View() + "\n" + helpStyle.Render("Enter: select | Esc: cancel | /: filter")
 	}
 
-	header := fmt.Sprintf("Chat with %s", m.modelName)
+	// Header - minimal, just show resumed status if applicable
+	var header string
 	if m.isResumed {
-		header += " (Resumed)"
+		header = helpStyle.Render("(Resumed session)")
 	}
 
+	// Footer - show model name and status
 	var footer string
+	modelInfo := helpStyle.Render(m.modelName)
 	if m.streaming {
 		if m.currentContent == "" {
-			footer = fmt.Sprintf("%s Thinking...", m.spinner.View())
+			footer = fmt.Sprintf("%s | %s Thinking...", modelInfo, m.spinner.View())
 		} else {
-			footer = fmt.Sprintf("%s Streaming...", m.spinner.View())
+			footer = fmt.Sprintf("%s | %s Streaming...", modelInfo, m.spinner.View())
 		}
 	} else {
-		footer = helpStyle.Render("Enter: send | ↑/↓: history | / for commands | Esc: quit")
+		footer = fmt.Sprintf("%s | %s", modelInfo, helpStyle.Render("Enter: send | ↑/↓: history | / for commands | Esc: quit"))
 	}
 
 	// Render autocomplete if showing
@@ -606,8 +704,15 @@ func (m chatModel) View() string {
 		autocompleteView = m.renderAutocomplete()
 	}
 
-	// Style the input box
-	inputBox := inputBoxStyle.Width(m.width - 4).Render(m.textarea.View())
+	// Style the input box - show summary for very long text
+	var inputBox string
+	if m.showingSummary {
+		visualLines := m.calculateVisualLines()
+		summaryText := helpStyle.Render(fmt.Sprintf("[text input: %d lines] ", visualLines)) + "Enter: send | Backspace: clear"
+		inputBox = inputBoxStyle.Width(m.width - 4).Render(summaryText)
+	} else {
+		inputBox = inputBoxStyle.Width(m.width - 4).Render(m.textarea.View())
+	}
 
 	if autocompleteView != "" {
 		return fmt.Sprintf(
