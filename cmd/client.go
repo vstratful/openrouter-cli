@@ -143,3 +143,82 @@ func handleNonStreamResponse(body io.Reader) error {
 
 	return nil
 }
+
+// streamChat streams chat responses to a channel for use with Bubble Tea TUI
+func streamChat(apiKey, model string, messages []Message, chunks chan<- string) error {
+	defer close(chunks)
+
+	reqBody := ChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   true,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", openRouterURL, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", "https://github.com/vstratful/openrouter-cli")
+	req.Header.Set("X-Title", "OpenRouter CLI")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+
+		data := strings.TrimPrefix(line, "data: ")
+
+		if data == "[DONE]" {
+			break
+		}
+
+		var response ChatResponse
+		if err := json.Unmarshal([]byte(data), &response); err != nil {
+			continue
+		}
+
+		if response.Error != nil {
+			return fmt.Errorf("API error: %s", response.Error.Message)
+		}
+
+		if len(response.Choices) > 0 {
+			content := response.Choices[0].Delta.Content
+			if content != "" {
+				chunks <- content
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading stream: %w", err)
+	}
+
+	return nil
+}

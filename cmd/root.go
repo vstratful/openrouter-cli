@@ -14,6 +14,8 @@ var (
 	stream bool
 )
 
+const defaultModel = "moonshotai/kimi-k2.5"
+
 var rootCmd = &cobra.Command{
 	Use:   "openrouter",
 	Short: "A CLI for interacting with OpenRouter API",
@@ -21,9 +23,10 @@ var rootCmd = &cobra.Command{
 through the OpenRouter API directly from your terminal.
 
 Examples:
-  openrouter --model google/gemini-2.5-flash --prompt "Hello, world!"
-  openrouter --model anthropic/claude-3.5-sonnet --prompt "Explain Go concurrency" --stream
-  openrouter --model google/gemini-2.5-flash-image --prompt "Make me a picture of a cat"`,
+  openrouter                                        # Interactive chat mode
+  openrouter --model google/gemini-2.5-flash        # Chat with specific model
+  openrouter --prompt "Hello, world!"               # Single-turn mode
+  openrouter --model anthropic/claude-3.5-sonnet --prompt "Explain Go concurrency"`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Get API key first - nothing else matters without it
 		apiKey, isFirstRun, err := getAPIKey()
@@ -36,24 +39,29 @@ Examples:
 			configPath, _ := config.GetConfigPath()
 			fmt.Printf("\nAPI key saved to %s\n", configPath)
 			fmt.Println("\nYou're all set! Try running:")
-			fmt.Println("  openrouter --model google/gemini-2.5-flash --prompt \"Hello, world!\"")
+			fmt.Println("  openrouter                    # Interactive chat")
+			fmt.Println("  openrouter -p \"Hello, world!\" # Single-turn mode")
 			return nil
 		}
 
-		if prompt == "" {
-			return fmt.Errorf("prompt is required")
-		}
+		// Use default model if not specified
 		if model == "" {
-			return fmt.Errorf("model is required")
+			model = defaultModel
 		}
 
+		// Interactive chat mode when no prompt provided
+		if prompt == "" {
+			return runChat(apiKey, model)
+		}
+
+		// Single-turn mode
 		return runPrompt(apiKey, model, prompt, stream)
 	},
 }
 
 func init() {
-	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Model to use (e.g., google/gemini-2.5-flash)")
-	rootCmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt to send to the model")
+	rootCmd.Flags().StringVarP(&model, "model", "m", "", "Model to use (default: "+defaultModel+")")
+	rootCmd.Flags().StringVarP(&prompt, "prompt", "p", "", "Prompt for single-turn mode (omit for interactive chat)")
 	rootCmd.Flags().BoolVarP(&stream, "stream", "s", true, "Stream the response (default: true)")
 }
 
