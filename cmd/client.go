@@ -179,6 +179,8 @@ func runPrompt(apiKey, model, prompt string, stream bool) error {
 
 func handleStreamResponse(body io.Reader) error {
 	scanner := bufio.NewScanner(body)
+	var fullContent strings.Builder
+
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -196,7 +198,29 @@ func handleStreamResponse(body io.Reader) error {
 
 		// Stream end signal
 		if data == "[DONE]" {
-			fmt.Println()
+			// Clear the raw output and render final markdown
+			content := fullContent.String()
+			if content != "" {
+				// Move cursor up and clear the raw text, then render markdown
+				// Use \r to return to line start, then print rendered content
+				fmt.Print("\r\033[K") // Clear current line
+
+				renderer, err := NewMarkdownRenderer(80)
+				if err == nil {
+					rendered, renderErr := renderer.Render(content)
+					if renderErr == nil {
+						fmt.Print(rendered)
+					} else {
+						// Fallback to raw content
+						fmt.Println(content)
+					}
+				} else {
+					// Fallback to raw content
+					fmt.Println(content)
+				}
+			} else {
+				fmt.Println()
+			}
 			break
 		}
 
@@ -211,6 +235,7 @@ func handleStreamResponse(body io.Reader) error {
 
 		if len(response.Choices) > 0 {
 			content := response.Choices[0].Delta.Content
+			fullContent.WriteString(content)
 			fmt.Print(content)
 		}
 	}
@@ -233,7 +258,20 @@ func handleNonStreamResponse(body io.Reader) error {
 	}
 
 	if len(response.Choices) > 0 {
-		fmt.Println(response.Choices[0].Message.Content)
+		content := response.Choices[0].Message.Content
+
+		// Try to render as markdown
+		renderer, err := NewMarkdownRenderer(80)
+		if err == nil {
+			rendered, renderErr := renderer.Render(content)
+			if renderErr == nil {
+				fmt.Print(rendered)
+				return nil
+			}
+		}
+
+		// Fallback to plain text
+		fmt.Println(content)
 	}
 
 	return nil

@@ -87,6 +87,9 @@ type chatModel struct {
 	showingModelPicker bool            // Whether model picker is showing
 	modelPickerModel   *modelPickerModel
 
+	// Markdown renderer for assistant messages
+	mdRenderer *MarkdownRenderer
+
 	// Command autocomplete state
 	showingAutocomplete bool
 	autocompleteIndex   int
@@ -120,6 +123,9 @@ func newChatModel(apiKey, modelName string, existingSession *config.Session) cha
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
+	// Initialize markdown renderer (ignore error, will fallback to plain text)
+	mdRenderer, _ := NewMarkdownRenderer(80)
+
 	m := chatModel{
 		textarea:     ta,
 		spinner:      sp,
@@ -127,6 +133,7 @@ func newChatModel(apiKey, modelName string, existingSession *config.Session) cha
 		modelName:    modelName,
 		messages:     []Message{},
 		historyIndex: -1,
+		mdRenderer:   mdRenderer,
 	}
 
 	// Load existing session or create new one
@@ -308,6 +315,15 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Account for border and padding in textarea width
 		m.textarea.SetWidth(msg.Width - 8)
+
+		// Update markdown renderer width for proper word wrapping
+		contentWidth := msg.Width - 4
+		if contentWidth < 10 {
+			contentWidth = 80
+		}
+		if m.mdRenderer != nil {
+			m.mdRenderer.SetWidth(contentWidth)
+		}
 
 		// Calculate dynamic textarea height
 		m.updateTextareaState()
@@ -584,7 +600,7 @@ func (m *chatModel) updateViewportContent() {
 			sb.WriteString(m.wrapText(msg.Content, contentWidth-5))
 		} else {
 			sb.WriteString(assistantStyle.Render("Assistant: "))
-			sb.WriteString(m.wrapText(msg.Content, contentWidth-11))
+			sb.WriteString(m.renderMarkdown(msg.Content, contentWidth-11))
 		}
 		sb.WriteString("\n\n")
 	}
@@ -592,7 +608,7 @@ func (m *chatModel) updateViewportContent() {
 	if m.streaming {
 		sb.WriteString(assistantStyle.Render("Assistant: "))
 		if m.currentContent != "" {
-			sb.WriteString(m.wrapText(m.currentContent, contentWidth-11))
+			sb.WriteString(m.renderMarkdown(m.currentContent, contentWidth-11))
 		}
 		sb.WriteString("▋")
 	}
@@ -603,6 +619,21 @@ func (m *chatModel) updateViewportContent() {
 
 	m.viewport.SetContent(sb.String())
 	m.viewport.GotoBottom()
+}
+
+// renderMarkdown renders content as markdown, falling back to plain text on error
+func (m *chatModel) renderMarkdown(content string, width int) string {
+	if m.mdRenderer == nil {
+		return m.wrapText(content, width)
+	}
+
+	rendered, err := m.mdRenderer.Render(content)
+	if err != nil {
+		return m.wrapText(content, width)
+	}
+
+	// Trim trailing newlines that glamour adds
+	return strings.TrimRight(rendered, "\n")
 }
 
 func (m chatModel) showSessionPicker() (tea.Model, tea.Cmd) {
