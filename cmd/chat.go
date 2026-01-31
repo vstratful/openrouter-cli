@@ -101,6 +101,7 @@ type chatModel struct {
 	// ESC double-press state
 	escPressedAt     time.Time // Time of first ESC press
 	escTimeoutActive bool      // Whether we're waiting for second ESC
+	escActionIsExit  bool      // True if pending ESC action is exit, false if clear
 }
 
 const maxTextareaHeight = 5
@@ -194,14 +195,16 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyEsc:
-			// Empty textarea: just quit
-			if strings.TrimSpace(m.textarea.Value()) == "" {
-				return m, tea.Quit
-			}
-
+			isEmpty := strings.TrimSpace(m.textarea.Value()) == ""
 			now := time.Now()
+
 			if m.escTimeoutActive && now.Sub(m.escPressedAt) < 2*time.Second {
-				// Second ESC - clear input
+				// Second ESC within 2s
+				if m.escActionIsExit {
+					// Exit the application
+					return m, tea.Quit
+				}
+				// Clear input
 				m.textarea.Reset()
 				m.updateTextareaState()
 				m.escTimeoutActive = false
@@ -213,6 +216,7 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// First ESC - show prompt, start timer
 			m.escPressedAt = now
 			m.escTimeoutActive = true
+			m.escActionIsExit = isEmpty
 			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
 				return escTimeoutMsg{}
 			})
@@ -829,7 +833,11 @@ func (m chatModel) View() string {
 		}
 	} else if m.escTimeoutActive {
 		// Warning state
-		footer = modelInfo + sep + escWarningStyle.Render("Press ⎋ again to clear input")
+		escAction := "clear input"
+		if m.escActionIsExit {
+			escAction = "exit"
+		}
+		footer = modelInfo + sep + escWarningStyle.Render("Press ⎋ again to "+escAction)
 	} else if m.historyIndex >= 0 {
 		// History browsing mode
 		historyPos := fmt.Sprintf("browsing history (%d/%d)",

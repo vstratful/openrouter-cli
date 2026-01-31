@@ -3,12 +3,29 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// formatPricePerMillion converts a price-per-token string to a formatted price per million tokens
+func formatPricePerMillion(pricePerToken string) string {
+	price, err := strconv.ParseFloat(pricePerToken, 64)
+	if err != nil || price == 0 {
+		if pricePerToken == "0" {
+			return "0"
+		}
+		return pricePerToken
+	}
+	pricePerMillion := price * 1_000_000
+	if pricePerMillion < 0.01 {
+		return fmt.Sprintf("%.4f", pricePerMillion)
+	}
+	return fmt.Sprintf("%.2f", pricePerMillion)
+}
 
 // modelItem implements list.Item interface for the model picker
 type modelItem struct {
@@ -36,7 +53,7 @@ func (i modelItem) Description() string {
 		if desc != "" {
 			desc += " | "
 		}
-		desc += fmt.Sprintf("$%s/$%s", i.model.Pricing.Prompt, i.model.Pricing.Completion)
+		desc += fmt.Sprintf("$%s/$%s per 1M tokens", formatPricePerMillion(i.model.Pricing.Prompt), formatPricePerMillion(i.model.Pricing.Completion))
 	}
 
 	return desc

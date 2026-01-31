@@ -82,8 +82,8 @@ func printModelDetails(m Model) {
 		fmt.Printf("Context Length: %d tokens\n", *m.ContextLength)
 	}
 
-	fmt.Printf("Pricing: prompt=%s/token, completion=%s/token\n",
-		m.Pricing.Prompt, m.Pricing.Completion)
+	fmt.Printf("Pricing: prompt=$%s/1M tokens, completion=$%s/1M tokens\n",
+		formatPricePerMillion(m.Pricing.Prompt), formatPricePerMillion(m.Pricing.Completion))
 
 	if len(m.Architecture.InputModalities) > 0 {
 		fmt.Printf("Input: %s\n", strings.Join(m.Architecture.InputModalities, ", "))
