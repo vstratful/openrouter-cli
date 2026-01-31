@@ -8,6 +8,9 @@ import (
 	"github.com/vstratful/openrouter-cli/internal/config"
 )
 
+// version is injected at build time by GoReleaser
+var version = "dev"
+
 var rootCmd = &cobra.Command{
 	Use:   "openrouter",
 	Short: "A CLI for interacting with OpenRouter API",
@@ -27,7 +30,7 @@ Examples:
 }
 
 func init() {
-	// No flags on root - all commands define their own
+	rootCmd.Version = version
 }
 
 func Execute() error {
