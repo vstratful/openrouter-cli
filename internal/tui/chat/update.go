@@ -42,6 +42,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC:
 			return m, tea.Quit
 		case tea.KeyEsc:
+			// Cancel streaming if active
+			if m.state == StateStreaming && m.activeStream != nil {
+				m.activeStream.Cancel()
+				m.state = StateIdle
+				m.currentContent = ""
+				m.updateViewportContent()
+				return m, nil
+			}
 			return m.handleEsc()
 		case tea.KeyCtrlU:
 			// Unix standard: clear line

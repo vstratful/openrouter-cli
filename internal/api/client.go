@@ -3,8 +3,10 @@ package api
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"time"
 )
@@ -200,6 +202,13 @@ func (c *client) calculateBackoff(attempt int) time.Duration {
 
 	if backoff > c.retry.MaxBackoff {
 		backoff = c.retry.MaxBackoff
+	}
+
+	// Add 10% jitter to prevent thundering herd
+	jitterRange := int64(backoff / 10)
+	if jitterRange > 0 {
+		jitter, _ := rand.Int(rand.Reader, big.NewInt(jitterRange*2))
+		backoff += time.Duration(jitter.Int64()) - time.Duration(jitterRange)
 	}
 
 	return backoff

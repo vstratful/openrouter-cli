@@ -1,5 +1,8 @@
 package chat
 
+// maxHistorySize is the maximum number of history entries to keep.
+const maxHistorySize = 1000
+
 // HistoryNavigator manages navigation through input history.
 type HistoryNavigator struct {
 	// history is the list of previous inputs
@@ -88,5 +91,8 @@ func (h *HistoryNavigator) Reset() {
 func (h *HistoryNavigator) Add(entry string) {
 	if len(h.history) == 0 || h.history[len(h.history)-1] != entry {
 		h.history = append(h.history, entry)
+		if len(h.history) > maxHistorySize {
+			h.history = h.history[len(h.history)-maxHistorySize:]
+		}
 	}
 }

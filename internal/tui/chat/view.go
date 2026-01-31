@@ -34,10 +34,11 @@ func (m Model) View() string {
 
 	switch m.state {
 	case StateStreaming:
+		escHint := sep + tui.KeyHintStyle.Render("Esc") + tui.DimHelpStyle.Render(": cancel")
 		if m.currentContent == "" {
-			footer = modelInfo + sep + m.spinner.View() + " Thinking..."
+			footer = modelInfo + sep + m.spinner.View() + " Thinking..." + escHint
 		} else {
-			footer = modelInfo + sep + m.spinner.View() + " Streaming..."
+			footer = modelInfo + sep + m.spinner.View() + " Streaming..." + escHint
 		}
 	case StateEscPending:
 		// Warning state
