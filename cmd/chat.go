@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -31,11 +32,38 @@ var (
 	autocompleteItemStyle     = lipgloss.NewStyle().PaddingLeft(2)
 	autocompleteSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
 	autocompleteDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+
+	// State-aware styles
+	escWarningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6B6B")). // Coral red - urgent but not alarming
+			Bold(true)
+
+	escWarningBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#FF6B6B")). // Match warning color
+				Padding(0, 1)
+
+	historyModeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#A78BFA")). // Soft purple - "you're in the past"
+				Italic(true)
+
+	keyHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6EE7B7")). // Mint green - actionable
+			Bold(true)
+
+	dimHelpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")) // Slightly brighter than current 241
+
+	historyBorderStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("#A78BFA")).
+				Padding(0, 1)
 )
 
 type streamChunkMsg string
 type streamDoneMsg string
 type streamErrMsg struct{ err error }
+type escTimeoutMsg struct{}
 
 type chatModel struct {
 	viewport       viewport.Model
@@ -66,6 +94,10 @@ type chatModel struct {
 
 	// Input summary mode (for very long text)
 	showingSummary bool
+
+	// ESC double-press state
+	escPressedAt     time.Time // Time of first ESC press
+	escTimeoutActive bool      // Whether we're waiting for second ESC
 }
 
 const maxTextareaHeight = 5
@@ -152,17 +184,70 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
 			return m, tea.Quit
+		case tea.KeyEsc:
+			// Empty textarea: just quit
+			if strings.TrimSpace(m.textarea.Value()) == "" {
+				return m, tea.Quit
+			}
+
+			now := time.Now()
+			if m.escTimeoutActive && now.Sub(m.escPressedAt) < 2*time.Second {
+				// Second ESC - clear input
+				m.textarea.Reset()
+				m.updateTextareaState()
+				m.escTimeoutActive = false
+				m.historyIndex = -1
+				m.currentDraft = ""
+				return m, nil
+			}
+
+			// First ESC - show prompt, start timer
+			m.escPressedAt = now
+			m.escTimeoutActive = true
+			return m, tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
+				return escTimeoutMsg{}
+			})
+		case tea.KeyCtrlU:
+			// Unix standard: clear line
+			m.textarea.Reset()
+			m.updateTextareaState()
+			m.historyIndex = -1
+			m.currentDraft = ""
+			m.escTimeoutActive = false
+			return m, nil
+		case tea.KeyPgUp:
+			m.viewport.ViewUp()
+			return m, nil
+		case tea.KeyPgDown:
+			m.viewport.ViewDown()
+			return m, nil
 		case tea.KeyUp:
 			if !m.streaming {
-				m.navigateHistoryUp()
+				if strings.TrimSpace(m.textarea.Value()) == "" || m.historyIndex >= 0 {
+					// Navigate history when empty or already browsing history
+					m.navigateHistoryUp()
+				} else {
+					// Pass to textarea for cursor navigation in multi-line text
+					m.textarea.KeyMap.LinePrevious.SetEnabled(true)
+					m.textarea, _ = m.textarea.Update(msg)
+					m.textarea.KeyMap.LinePrevious.SetEnabled(false)
+				}
 				m.updateTextareaState()
 			}
 			return m, nil
 		case tea.KeyDown:
 			if !m.streaming {
-				m.navigateHistoryDown()
+				if strings.TrimSpace(m.textarea.Value()) == "" || m.historyIndex >= 0 {
+					// Navigate history when empty or already browsing history
+					m.navigateHistoryDown()
+				} else {
+					// Pass to textarea for cursor navigation in multi-line text
+					m.textarea.KeyMap.LineNext.SetEnabled(true)
+					m.textarea, _ = m.textarea.Update(msg)
+					m.textarea.KeyMap.LineNext.SetEnabled(false)
+				}
 				m.updateTextareaState()
 			}
 			return m, nil
@@ -265,6 +350,10 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streaming = false
 		m.currentContent = ""
 		m.updateViewportContent()
+		return m, nil
+
+	case escTimeoutMsg:
+		m.escTimeoutActive = false
 		return m, nil
 
 	case spinner.TickMsg:
@@ -687,15 +776,32 @@ func (m chatModel) View() string {
 
 	// Footer - show model name and status
 	var footer string
-	modelInfo := helpStyle.Render(m.modelName)
+	modelInfo := dimHelpStyle.Render(m.modelName)
+	sep := dimHelpStyle.Render(" • ")
+
 	if m.streaming {
 		if m.currentContent == "" {
-			footer = fmt.Sprintf("%s | %s Thinking...", modelInfo, m.spinner.View())
+			footer = modelInfo + sep + m.spinner.View() + " Thinking..."
 		} else {
-			footer = fmt.Sprintf("%s | %s Streaming...", modelInfo, m.spinner.View())
+			footer = modelInfo + sep + m.spinner.View() + " Streaming..."
 		}
+	} else if m.escTimeoutActive {
+		// Warning state
+		footer = modelInfo + sep + escWarningStyle.Render("Press ⎋ again to clear input")
+	} else if m.historyIndex >= 0 {
+		// History browsing mode
+		historyPos := fmt.Sprintf("browsing history (%d/%d)",
+			len(m.session.History)-m.historyIndex, len(m.session.History))
+		footer = modelInfo + sep + historyModeStyle.Render(historyPos) +
+			sep + dimHelpStyle.Render("↑↓: navigate • Enter: use • ⎋: cancel")
 	} else {
-		footer = fmt.Sprintf("%s | %s", modelInfo, helpStyle.Render("Enter: send | ↑/↓: history | / for commands | Esc: quit"))
+		// Normal state with styled hints
+		hints := []string{
+			keyHintStyle.Render("Enter") + dimHelpStyle.Render(": send"),
+			keyHintStyle.Render("↑↓") + dimHelpStyle.Render(": history"),
+			keyHintStyle.Render("/") + dimHelpStyle.Render(": commands"),
+		}
+		footer = modelInfo + sep + strings.Join(hints, sep)
 	}
 
 	// Render autocomplete if showing
@@ -704,14 +810,22 @@ func (m chatModel) View() string {
 		autocompleteView = m.renderAutocomplete()
 	}
 
-	// Style the input box - show summary for very long text
+	// Style the input box - change border color based on state
+	currentInputStyle := inputBoxStyle
+	if m.escTimeoutActive {
+		currentInputStyle = escWarningBoxStyle
+	} else if m.historyIndex >= 0 {
+		currentInputStyle = historyBorderStyle
+	}
+
+	// Render input box - show summary for very long text
 	var inputBox string
 	if m.showingSummary {
 		visualLines := m.calculateVisualLines()
-		summaryText := helpStyle.Render(fmt.Sprintf("[text input: %d lines] ", visualLines)) + "Enter: send | Backspace: clear"
-		inputBox = inputBoxStyle.Width(m.width - 4).Render(summaryText)
+		summaryText := dimHelpStyle.Render(fmt.Sprintf("[text input: %d lines] ", visualLines)) + "Enter: send | Backspace: clear"
+		inputBox = currentInputStyle.Width(m.width - 4).Render(summaryText)
 	} else {
-		inputBox = inputBoxStyle.Width(m.width - 4).Render(m.textarea.View())
+		inputBox = currentInputStyle.Width(m.width - 4).Render(m.textarea.View())
 	}
 
 	if autocompleteView != "" {
