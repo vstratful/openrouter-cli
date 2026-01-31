@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vstratful/openrouter-cli/config"
 )
 
 var (
@@ -39,6 +40,9 @@ type chatModel struct {
 	ready          bool
 	width          int
 	height         int
+	session        *config.Session // Current session (has ID and History)
+	historyIndex   int             // -1 = not browsing, otherwise index into history
+	currentDraft   string          // Preserve current input when navigating
 }
 
 func newChatModel(apiKey, modelName string) chatModel {
@@ -50,17 +54,22 @@ func newChatModel(apiKey, modelName string) chatModel {
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline.SetEnabled(false)
+	// Disable built-in arrow key handling for history navigation
+	ta.KeyMap.LineNext.SetEnabled(false)
+	ta.KeyMap.LinePrevious.SetEnabled(false)
 
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
 
 	return chatModel{
-		textarea:  ta,
-		spinner:   sp,
-		apiKey:    apiKey,
-		modelName: modelName,
-		messages:  []Message{},
+		textarea:     ta,
+		spinner:      sp,
+		apiKey:       apiKey,
+		modelName:    modelName,
+		messages:     []Message{},
+		session:      config.NewSession(),
+		historyIndex: -1,
 	}
 }
 
@@ -80,6 +89,16 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+		case tea.KeyUp:
+			if !m.streaming {
+				m.navigateHistoryUp()
+			}
+			return m, nil
+		case tea.KeyDown:
+			if !m.streaming {
+				m.navigateHistoryDown()
+			}
+			return m, nil
 		case tea.KeyEnter:
 			if m.streaming {
 				return m, nil
@@ -88,6 +107,14 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if userInput == "" {
 				return m, nil
 			}
+
+			// Save to history (skip consecutive duplicates)
+			historyLen := len(m.session.History)
+			if historyLen == 0 || m.session.History[historyLen-1] != userInput {
+				m.session.AppendHistory(userInput)
+			}
+			m.historyIndex = -1
+			m.currentDraft = ""
 
 			m.messages = append(m.messages, Message{Role: "user", Content: userInput})
 			m.textarea.Reset()
@@ -167,6 +194,39 @@ func (m *chatModel) wrapText(text string, width int) string {
 	return strings.TrimRight(wrapped, "\n")
 }
 
+func (m *chatModel) navigateHistoryUp() {
+	if len(m.session.History) == 0 {
+		return
+	}
+
+	// First press: save current draft and start at most recent
+	if m.historyIndex == -1 {
+		m.currentDraft = m.textarea.Value()
+		m.historyIndex = len(m.session.History) - 1
+	} else if m.historyIndex > 0 {
+		// Move to older entry
+		m.historyIndex--
+	}
+
+	m.textarea.SetValue(m.session.History[m.historyIndex])
+}
+
+func (m *chatModel) navigateHistoryDown() {
+	if m.historyIndex == -1 {
+		return
+	}
+
+	if m.historyIndex < len(m.session.History)-1 {
+		// Move to newer entry
+		m.historyIndex++
+		m.textarea.SetValue(m.session.History[m.historyIndex])
+	} else {
+		// At bottom of history, restore draft
+		m.historyIndex = -1
+		m.textarea.SetValue(m.currentDraft)
+	}
+}
+
 func (m *chatModel) updateViewportContent() {
 	var sb strings.Builder
 	contentWidth := m.width - 2
@@ -216,7 +276,7 @@ func (m chatModel) View() string {
 			footer = fmt.Sprintf("%s Streaming...", m.spinner.View())
 		}
 	} else {
-		footer = helpStyle.Render("Enter: send | Esc/Ctrl+C: quit")
+		footer = helpStyle.Render("Enter: send | ↑/↓: history | Esc/Ctrl+C: quit")
 	}
 
 	// Style the input box
