@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -46,6 +47,8 @@ type chatModel struct {
 	isResumed      bool            // Whether this is a resumed session
 	showingPicker  bool            // Whether session picker is showing
 	pickerModel    *sessionPickerModel
+	showingModelPicker bool            // Whether model picker is showing
+	modelPickerModel   *modelPickerModel
 }
 
 func newChatModel(apiKey, modelName string, existingSession *config.Session) chatModel {
@@ -98,6 +101,11 @@ func (m chatModel) Init() tea.Cmd {
 }
 
 func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle model picker mode
+	if m.showingModelPicker && m.modelPickerModel != nil {
+		return m.updateModelPicker(msg)
+	}
+
 	// Handle session picker mode
 	if m.showingPicker && m.pickerModel != nil {
 		return m.updatePicker(msg)
@@ -137,6 +145,12 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if userInput == "/resume" {
 				m.textarea.Reset()
 				return m.showSessionPicker()
+			}
+
+			// Handle /model command
+			if userInput == "/model" {
+				m.textarea.Reset()
+				return m.showModelPicker()
 			}
 
 			// Save to history (skip consecutive duplicates)
@@ -379,9 +393,80 @@ func (m chatModel) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m chatModel) showModelPicker() (tea.Model, tea.Cmd) {
+	picker := newModelPickerModel(m.width, m.height)
+	m.modelPickerModel = &picker
+	m.showingModelPicker = true
+	return m, tea.Batch(loadModelsCmd(m.apiKey), m.modelPickerModel.spinner.Tick)
+}
+
+func (m chatModel) updateModelPicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+		if m.modelPickerModel != nil {
+			m.modelPickerModel.width = msg.Width
+			m.modelPickerModel.height = msg.Height
+			if !m.modelPickerModel.loading {
+				m.modelPickerModel.list.SetWidth(msg.Width)
+				m.modelPickerModel.list.SetHeight(msg.Height - 2)
+			}
+		}
+		return m, nil
+
+	case modelsLoadedMsg, modelsLoadErrorMsg:
+		// Delegate to picker
+		newPicker, cmd := m.modelPickerModel.Update(msg)
+		m.modelPickerModel = &newPicker
+		return m, cmd
+
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "esc":
+			// If filtering is active, let the list handle it
+			if !m.modelPickerModel.loading && m.modelPickerModel.list.FilterState() == list.Filtering {
+				newPicker, cmd := m.modelPickerModel.Update(msg)
+				m.modelPickerModel = &newPicker
+				return m, cmd
+			}
+			// Return to chat without selecting
+			m.showingModelPicker = false
+			m.modelPickerModel = nil
+			return m, nil
+
+		case "ctrl+c":
+			return m, tea.Quit
+
+		case "enter":
+			if m.modelPickerModel.loading {
+				return m, nil
+			}
+			if i, ok := m.modelPickerModel.list.SelectedItem().(modelItem); ok {
+				// Update the model
+				m.modelName = i.model.ID
+				m.session.Model = i.model.ID
+				m.showingModelPicker = false
+				m.modelPickerModel = nil
+				return m, nil
+			}
+		}
+	}
+
+	// Delegate to picker
+	newPicker, cmd := m.modelPickerModel.Update(msg)
+	m.modelPickerModel = &newPicker
+	return m, cmd
+}
+
 func (m chatModel) View() string {
 	if !m.ready {
 		return "Initializing..."
+	}
+
+	// Show model picker if active
+	if m.showingModelPicker && m.modelPickerModel != nil {
+		return m.modelPickerModel.View() + "\n" + helpStyle.Render("Enter: select | Esc: cancel | /: filter")
 	}
 
 	// Show session picker if active
@@ -402,7 +487,7 @@ func (m chatModel) View() string {
 			footer = fmt.Sprintf("%s Streaming...", m.spinner.View())
 		}
 	} else {
-		footer = helpStyle.Render("Enter: send | ↑/↓: history | /resume: switch session | Esc: quit")
+		footer = helpStyle.Render("Enter: send | ↑/↓: history | /resume: switch session | /model: change model | Esc: quit")
 	}
 
 	// Style the input box
