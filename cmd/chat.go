@@ -309,6 +309,17 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.startStream(), m.spinner.Tick)
 		}
 
+	case tea.MouseMsg:
+		// Handle mouse wheel scrolling for viewport (3 lines at a time)
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.viewport.SetYOffset(m.viewport.YOffset - 3)
+			return m, nil
+		case tea.MouseButtonWheelDown:
+			m.viewport.SetYOffset(m.viewport.YOffset + 3)
+			return m, nil
+		}
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -946,6 +957,7 @@ func runChatWithSession(apiKey, modelName string, session *config.Session) error
 	p := tea.NewProgram(
 		newChatModel(apiKey, modelName, session),
 		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(), // Enable mouse to handle scroll wheel properly
 	)
 
 	_, err := p.Run()
