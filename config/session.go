@@ -9,10 +9,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// SessionMessage represents a message in the conversation
+type SessionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // Session represents a CLI session with its history
 type Session struct {
-	ID      string   `json:"id"`
-	History []string `json:"history"`
+	ID       string           `json:"id"`
+	History  []string         `json:"history"`  // User input history for arrow key navigation
+	Messages []SessionMessage `json:"messages"` // Full conversation for resume
 }
 
 // NewSession creates a new session with a generated UUID
@@ -61,6 +68,12 @@ func (s *Session) Save() error {
 // AppendHistory adds an entry to the history and saves
 func (s *Session) AppendHistory(entry string) error {
 	s.History = append(s.History, entry)
+	return s.Save()
+}
+
+// AppendMessage adds a message to the conversation and saves
+func (s *Session) AppendMessage(role, content string) error {
+	s.Messages = append(s.Messages, SessionMessage{Role: role, Content: content})
 	return s.Save()
 }
 

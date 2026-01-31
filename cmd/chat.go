@@ -116,6 +116,9 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.historyIndex = -1
 			m.currentDraft = ""
 
+			// Save user message to session for resume
+			m.session.AppendMessage("user", userInput)
+
 			m.messages = append(m.messages, Message{Role: "user", Content: userInput})
 			m.textarea.Reset()
 			m.streaming = true
@@ -158,6 +161,8 @@ func (m chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamDoneMsg:
 		if m.currentContent != "" {
 			m.messages = append(m.messages, Message{Role: "assistant", Content: m.currentContent})
+			// Save assistant message to session for resume
+			m.session.AppendMessage("assistant", m.currentContent)
 		}
 		m.streaming = false
 		m.currentContent = ""
