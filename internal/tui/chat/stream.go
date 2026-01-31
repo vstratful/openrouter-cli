@@ -10,11 +10,12 @@ import (
 // StreamState manages the state of an active stream.
 // This replaces the global activeStream variable for better encapsulation.
 type StreamState struct {
-	mu      sync.Mutex
-	chunks  chan string
-	errChan chan error
-	done    bool
-	reader  *api.StreamReader
+	mu        sync.Mutex
+	chunks    chan string
+	errChan   chan error
+	done      bool
+	cancelled bool // track explicit user cancellation
+	reader    *api.StreamReader
 }
 
 // NewStreamState creates a new StreamState.
@@ -82,7 +83,15 @@ func (s *StreamState) Cancel() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.cancelled = true
 	if s.reader != nil && !s.done {
 		s.reader.Close()
 	}
+}
+
+// IsCancelled returns whether the stream was explicitly cancelled by the user.
+func (s *StreamState) IsCancelled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelled
 }

@@ -45,6 +45,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Cancel streaming if active
 			if m.state == StateStreaming && m.activeStream != nil {
 				m.activeStream.Cancel()
+				// Save partial response to messages so it persists
+				if m.currentContent != "" {
+					assistantMsg := api.Message{Role: "assistant", Content: m.currentContent}
+					m.messages = append(m.messages, assistantMsg)
+					m.appendRenderedMessage(assistantMsg)
+					// Save to session for resume
+					if err := m.session.AppendMessage("assistant", m.currentContent); err != nil {
+						m.sessionErr = err
+					} else {
+						m.sessionErr = nil
+					}
+				}
 				m.state = StateIdle
 				m.currentContent = ""
 				m.updateViewportContent()
@@ -151,11 +163,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewportContent()
 
 	case StreamChunkMsg:
+		// Ignore chunks if we're not streaming (cancelled or otherwise)
+		if m.state != StateStreaming {
+			return m, nil
+		}
 		m.currentContent += string(msg)
 		m.updateViewportContent()
 		return m, m.WaitForChunk()
 
 	case StreamDoneMsg:
+		// Ignore if we're not streaming (was cancelled)
+		if m.state != StateStreaming {
+			return m, nil
+		}
 		if m.currentContent != "" {
 			msg := api.Message{Role: "assistant", Content: m.currentContent}
 			m.messages = append(m.messages, msg)
@@ -173,6 +193,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case StreamErrMsg:
+		// Ignore errors if we're not streaming (was cancelled)
+		if m.state != StateStreaming {
+			return m, nil
+		}
 		m.err = msg.Err
 		m.state = StateIdle
 		m.currentContent = ""
