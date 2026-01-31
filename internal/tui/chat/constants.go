@@ -6,4 +6,6 @@ const (
 	CmdModels = "/models"
 	CmdQuit   = "/quit"
 	CmdExit   = "/exit"
+	CmdNew    = "/new"
+	CmdClear  = "/clear"
 )

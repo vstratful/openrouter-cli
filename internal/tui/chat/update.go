@@ -285,6 +285,19 @@ func (m Model) handleSubmit() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// Handle /new and /clear commands
+	if userInput == CmdNew || userInput == CmdClear {
+		m.textarea.Reset()
+		m.updateTextareaState()
+		m.messages = []api.Message{}
+		m.renderedHistory = ""
+		m.currentContent = ""
+		m.session = config.NewSession()
+		m.session.Model = m.modelName
+		m.updateViewportContent()
+		return m, nil
+	}
+
 	// Save to history
 	m.history.Add(userInput)
 	if err := m.session.AppendHistory(userInput); err != nil {

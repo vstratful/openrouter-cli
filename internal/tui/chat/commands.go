@@ -11,8 +11,10 @@ type Command struct {
 // AvailableCommands returns all available chat commands.
 func AvailableCommands() []Command {
 	return []Command{
+		{Name: CmdClear, Description: "Clear conversation history"},
 		{Name: CmdExit, Description: "Exit the application"},
 		{Name: CmdModels, Description: "Change the AI model"},
+		{Name: CmdNew, Description: "Start a new conversation"},
 		{Name: CmdQuit, Description: "Exit the application"},
 		{Name: CmdResume, Description: "Resume a previous session"},
 	}

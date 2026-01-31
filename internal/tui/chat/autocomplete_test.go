@@ -25,7 +25,7 @@ func TestAutocompleteState_Update(t *testing.T) {
 			name:        "slash only",
 			input:       "/",
 			wantVisible: true,
-			wantCount:   4, // /exit, /models, /quit, /resume
+			wantCount:   6, // /clear, /exit, /models, /new, /quit, /resume
 		},
 		{
 			name:        "partial command",
@@ -88,7 +88,7 @@ func TestAutocompleteState_Update(t *testing.T) {
 
 func TestAutocompleteState_Navigation(t *testing.T) {
 	a := NewAutocompleteState()
-	a.Update("/") // Show all 4 commands
+	a.Update("/") // Show all 6 commands
 
 	if a.Index() != 0 {
 		t.Errorf("Initial Index() = %d, want 0", a.Index())
@@ -102,27 +102,31 @@ func TestAutocompleteState_Navigation(t *testing.T) {
 
 	a.Down()
 	a.Down()
-	if a.Index() != 3 {
-		t.Errorf("After 3x Down() Index() = %d, want 3", a.Index())
+	a.Down()
+	a.Down()
+	if a.Index() != 5 {
+		t.Errorf("After 5x Down() Index() = %d, want 5", a.Index())
 	}
 
 	// Down at bottom should stay at bottom
 	a.Down()
-	if a.Index() != 3 {
-		t.Errorf("Down at bottom Index() = %d, want 3", a.Index())
+	if a.Index() != 5 {
+		t.Errorf("Down at bottom Index() = %d, want 5", a.Index())
 	}
 
 	// Up navigation
 	a.Up()
-	if a.Index() != 2 {
-		t.Errorf("After Up() Index() = %d, want 2", a.Index())
+	if a.Index() != 4 {
+		t.Errorf("After Up() Index() = %d, want 4", a.Index())
 	}
 
 	// Up to top
 	a.Up()
 	a.Up()
+	a.Up()
+	a.Up()
 	if a.Index() != 0 {
-		t.Errorf("After 3x Up() Index() = %d, want 0", a.Index())
+		t.Errorf("After 5x Up() Index() = %d, want 0", a.Index())
 	}
 
 	// Up at top should stay at top
@@ -160,11 +164,13 @@ func TestAutocompleteState_Hide(t *testing.T) {
 func TestAutocompleteState_IndexClamp(t *testing.T) {
 	a := NewAutocompleteState()
 
-	// Start with 4 commands
+	// Start with 6 commands
 	a.Update("/")
 	a.Down()
 	a.Down()
-	a.Down() // Index = 3
+	a.Down()
+	a.Down()
+	a.Down() // Index = 5
 
 	// Update to show only 1 command
 	a.Update("/e") // Only /exit
