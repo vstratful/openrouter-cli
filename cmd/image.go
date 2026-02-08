@@ -43,7 +43,7 @@ Examples:
   openrouter image -p "A sunset over mountains" -f output.png
   openrouter image -p "A sunset" --base64
   openrouter image -p "A portrait" --aspect-ratio 9:16 -f portrait.png
-  openrouter image -m openai/gpt-5-image -p "A landscape" --size 2K -f hd.png`,
+  openrouter image -m google/gemini-2.5-flash-image -p "A landscape" --size 2K -f hd.png`,
 	RunE: runImage,
 }
 
