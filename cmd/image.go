@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -19,17 +20,23 @@ var (
 	imageBase64      bool
 	imageAspectRatio string
 	imageSize        string
+	imageInput       string
 )
 
 var imageCmd = &cobra.Command{
 	Use:   "image",
 	Short: "Generate an image using an image-capable model",
-	Long: `Generate an image using the OpenRouter API with an image-capable model.
+	Long: `Generate or edit an image using the OpenRouter API with an image-capable model.
 
 The model must support image output modality. Use 'openrouter models --image-only'
 to see available image-capable models.
 
+Pass --input (-i) with an existing image file to send it to the model for
+editing or refinement. The model must support image input (e.g., Gemini Flash).
+Supported input formats: PNG, JPEG, WebP, GIF.
+
 Options:
+  --input           Path to an input image for editing/refinement
   --aspect-ratio    Aspect ratio for the generated image. Available values:
                     1:1 (1024x1024), 2:3 (832x1248), 3:2 (1248x832),
                     3:4 (864x1184), 4:3 (1184x864), 4:5 (896x1152),
@@ -43,7 +50,8 @@ Examples:
   openrouter image -p "A sunset over mountains" -f output.png
   openrouter image -p "A sunset" --base64
   openrouter image -p "A portrait" --aspect-ratio 9:16 -f portrait.png
-  openrouter image -m google/gemini-2.5-flash-image -p "A landscape" --size 2K -f hd.png`,
+  openrouter image -m google/gemini-2.5-flash-image -p "A landscape" --size 2K -f hd.png
+  openrouter image -p "Make this more vibrant" -i photo.png -f vibrant.png`,
 	RunE: runImage,
 }
 
@@ -53,6 +61,7 @@ func init() {
 	imageCmd.Flags().StringVarP(&imagePrompt, "prompt", "p", "", "Image generation prompt (required)")
 	imageCmd.Flags().StringVarP(&imageFile, "file", "f", "", "Output file path (e.g., output.png)")
 	imageCmd.Flags().BoolVar(&imageBase64, "base64", false, "Output raw base64 instead of saving to file")
+	imageCmd.Flags().StringVarP(&imageInput, "input", "i", "", "Input image file for editing/refinement")
 	imageCmd.Flags().StringVar(&imageAspectRatio, "aspect-ratio", "", "Aspect ratio (default: 1:1)")
 	imageCmd.Flags().StringVar(&imageSize, "size", "", "Image resolution (default: 1K)")
 
@@ -122,12 +131,40 @@ func runImage(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("model not found")
 	}
 
+	// Build the user message
+	var userMessage api.Message
+	if imageInput != "" {
+		// Validate the model supports image input
+		if !selectedModel.SupportsImageInput() {
+			return fmt.Errorf("model '%s' does not support image input; choose a model with image input modality", imageModel)
+		}
+
+		// Read and encode the input image
+		mime, err := detectImageMIME(imageInput)
+		if err != nil {
+			return err
+		}
+		imgData, err := os.ReadFile(imageInput)
+		if err != nil {
+			return fmt.Errorf("failed to read input image: %w", err)
+		}
+		dataURL := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(imgData))
+
+		userMessage = api.Message{
+			Role: "user",
+			ContentParts: []api.ContentPart{
+				{Type: "text", Text: imagePrompt},
+				{Type: "image_url", ImageURL: &api.ImageURL{URL: dataURL}},
+			},
+		}
+	} else {
+		userMessage = api.Message{Role: "user", Content: imagePrompt}
+	}
+
 	// Build the request
 	req := &api.ChatRequest{
-		Model: imageModel,
-		Messages: []api.Message{
-			{Role: "user", Content: imagePrompt},
-		},
+		Model:      imageModel,
+		Messages:   []api.Message{userMessage},
 		Modalities: []string{"image", "text"},
 	}
 
@@ -192,6 +229,23 @@ func runImage(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// detectImageMIME returns the MIME type for a supported image file based on extension.
+func detectImageMIME(path string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".png":
+		return "image/png", nil
+	case ".jpg", ".jpeg":
+		return "image/jpeg", nil
+	case ".webp":
+		return "image/webp", nil
+	case ".gif":
+		return "image/gif", nil
+	default:
+		return "", fmt.Errorf("unsupported image format %q; supported formats: png, jpg, jpeg, webp, gif", ext)
+	}
 }
 
 // parseDataURL extracts the base64 data from a data URL.

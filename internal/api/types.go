@@ -1,10 +1,84 @@
 // Package api provides the OpenRouter API client.
 package api
 
+import "encoding/json"
+
+// ContentPart represents a single part of a multipart message content.
+type ContentPart struct {
+	Type     string    `json:"type"`
+	Text     string    `json:"text,omitempty"`
+	ImageURL *ImageURL `json:"image_url,omitempty"`
+}
+
 // Message represents a chat message.
+// Content is used for simple string messages. ContentParts is used for
+// multipart messages (e.g., text + images). When both are set, ContentParts
+// takes precedence during marshaling.
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role         string        `json:"role"`
+	Content      string        `json:"-"`
+	ContentParts []ContentPart `json:"-"`
+}
+
+// MarshalJSON implements custom JSON marshaling for Message.
+// When ContentParts is populated, content is serialized as an array.
+// Otherwise, content is serialized as a string.
+func (m Message) MarshalJSON() ([]byte, error) {
+	if len(m.ContentParts) > 0 {
+		return json.Marshal(struct {
+			Role    string        `json:"role"`
+			Content []ContentPart `json:"content"`
+		}{
+			Role:    m.Role,
+			Content: m.ContentParts,
+		})
+	}
+	return json.Marshal(struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}{
+		Role:    m.Role,
+		Content: m.Content,
+	})
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for Message.
+// It detects whether content is a string or array and populates fields accordingly.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.Role = raw.Role
+
+	if len(raw.Content) == 0 {
+		return nil
+	}
+
+	// Try string first
+	var s string
+	if err := json.Unmarshal(raw.Content, &s); err == nil {
+		m.Content = s
+		return nil
+	}
+
+	// Try array of content parts
+	var parts []ContentPart
+	if err := json.Unmarshal(raw.Content, &parts); err != nil {
+		return err
+	}
+	m.ContentParts = parts
+	// Extract text content into Content for convenience
+	for _, p := range parts {
+		if p.Type == "text" {
+			m.Content = p.Text
+			break
+		}
+	}
+	return nil
 }
 
 // ImageConfig represents configuration for image generation.
@@ -112,6 +186,16 @@ type ListModelsOptions struct {
 // IsImageModel returns true if the model supports image output.
 func (m *Model) IsImageModel() bool {
 	for _, mod := range m.Architecture.OutputModalities {
+		if mod == "image" {
+			return true
+		}
+	}
+	return false
+}
+
+// SupportsImageInput returns true if the model accepts image input.
+func (m *Model) SupportsImageInput() bool {
+	for _, mod := range m.Architecture.InputModalities {
 		if mod == "image" {
 			return true
 		}

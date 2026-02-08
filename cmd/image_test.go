@@ -80,3 +80,36 @@ func TestParseDataURL(t *testing.T) {
 		})
 	}
 }
+
+func TestDetectImageMIME(t *testing.T) {
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "png", path: "photo.png", want: "image/png"},
+		{name: "jpg", path: "photo.jpg", want: "image/jpeg"},
+		{name: "jpeg", path: "photo.jpeg", want: "image/jpeg"},
+		{name: "webp", path: "photo.webp", want: "image/webp"},
+		{name: "gif", path: "photo.gif", want: "image/gif"},
+		{name: "uppercase PNG", path: "photo.PNG", want: "image/png"},
+		{name: "bmp unsupported", path: "photo.bmp", wantErr: true},
+		{name: "svg unsupported", path: "photo.svg", wantErr: true},
+		{name: "txt unsupported", path: "notes.txt", wantErr: true},
+		{name: "no extension", path: "photo", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := detectImageMIME(tt.path)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("detectImageMIME(%q) error = %v, wantErr %v", tt.path, err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("detectImageMIME(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}

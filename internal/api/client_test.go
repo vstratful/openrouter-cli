@@ -321,6 +321,79 @@ func TestClient_2xxStatusCodes(t *testing.T) {
 	}
 }
 
+func TestClient_Chat_MultipartContent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var raw map[string]json.RawMessage
+		json.NewDecoder(r.Body).Decode(&raw)
+
+		var messages []json.RawMessage
+		json.Unmarshal(raw["messages"], &messages)
+		if len(messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(messages))
+		}
+
+		var msg map[string]json.RawMessage
+		json.Unmarshal(messages[0], &msg)
+
+		// content should be an array, not a string
+		contentStr := string(msg["content"])
+		if contentStr[0] != '[' {
+			t.Errorf("expected content to be array, got: %s", contentStr)
+		}
+
+		var parts []map[string]interface{}
+		json.Unmarshal(msg["content"], &parts)
+		if len(parts) != 2 {
+			t.Fatalf("expected 2 content parts, got %d", len(parts))
+		}
+		if parts[0]["type"] != "text" {
+			t.Errorf("first part type = %v, want text", parts[0]["type"])
+		}
+		if parts[1]["type"] != "image_url" {
+			t.Errorf("second part type = %v, want image_url", parts[1]["type"])
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ChatResponse{
+			Choices: []Choice{
+				{
+					Message: struct {
+						Content string         `json:"content"`
+						Images  []ImageContent `json:"images,omitempty"`
+					}{
+						Content: "Done",
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := NewClient(ClientConfig{
+		APIKey:  "test-key",
+		BaseURL: server.URL,
+	})
+
+	resp, err := client.Chat(context.Background(), &ChatRequest{
+		Model: "test-model",
+		Messages: []Message{
+			{
+				Role: "user",
+				ContentParts: []ContentPart{
+					{Type: "text", Text: "describe this"},
+					{Type: "image_url", ImageURL: &ImageURL{URL: "data:image/png;base64,abc"}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if len(resp.Choices) == 0 {
+		t.Error("Expected choices in response")
+	}
+}
+
 func TestDefaultClient(t *testing.T) {
 	client := DefaultClient("test-key")
 	if client == nil {
