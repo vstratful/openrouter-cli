@@ -59,7 +59,7 @@ func runModels(cmd *cobra.Command, args []string) error {
 		SupportedParameters: supportedParameters,
 	}
 
-	client := api.DefaultClient(apiKey)
+	client := api.DefaultClient(apiKey, timeout)
 	models, err := client.ListModels(context.Background(), opts)
 	if err != nil {
 		return err

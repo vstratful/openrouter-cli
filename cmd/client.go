@@ -10,7 +10,7 @@ import (
 
 // runPrompt sends a single prompt to the API and prints the response.
 func runPrompt(apiKey, model, prompt string, stream bool) error {
-	client := api.DefaultClient(apiKey)
+	client := api.DefaultClient(apiKey, timeout)
 	req := &api.ChatRequest{
 		Model: model,
 		Messages: []api.Message{

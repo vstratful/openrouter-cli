@@ -395,7 +395,7 @@ func TestClient_Chat_MultipartContent(t *testing.T) {
 }
 
 func TestDefaultClient(t *testing.T) {
-	client := DefaultClient("test-key")
+	client := DefaultClient("test-key", 0)
 	if client == nil {
 		t.Error("DefaultClient returned nil")
 	}

@@ -91,8 +91,8 @@ func runImage(cmd *cobra.Command, args []string) error {
 		imageModel = cfg.DefaultImageModel
 	}
 
-	client := api.DefaultClient(apiKey)
-	imageClient := api.ImageClient(apiKey)
+	client := api.DefaultClient(apiKey, timeout)
+	imageClient := api.ImageClient(apiKey, timeout)
 
 	// Fetch models and validate the selected model
 	models, err := client.ListModels(context.Background(), nil)

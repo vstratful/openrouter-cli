@@ -15,8 +15,8 @@ const (
 	// DefaultBaseURL is the default OpenRouter API base URL.
 	DefaultBaseURL = "https://openrouter.ai/api/v1"
 
-	// DefaultTimeout is the default HTTP timeout.
-	DefaultTimeout = 30 * time.Second
+	// DefaultTimeout is the default HTTP timeout for non-streaming requests.
+	DefaultTimeout = 5 * time.Minute
 
 	// DefaultStreamTimeout is the default timeout for streaming requests.
 	DefaultStreamTimeout = 5 * time.Minute
@@ -98,23 +98,24 @@ type ClientConfig struct {
 }
 
 // DefaultClient creates a new client with default configuration.
-func DefaultClient(apiKey string) Client {
+func DefaultClient(apiKey string, timeout time.Duration) Client {
 	retryConfig := DefaultRetryConfig()
 	return NewClient(ClientConfig{
-		APIKey:  apiKey,
-		Referer: "https://github.com/vstratful/openrouter-cli",
-		Title:   "OpenRouter CLI",
-		Retry:   &retryConfig,
+		APIKey:        apiKey,
+		Timeout:       timeout,
+		StreamTimeout: timeout,
+		Referer:       "https://github.com/vstratful/openrouter-cli",
+		Title:         "OpenRouter CLI",
+		Retry:         &retryConfig,
 	})
 }
 
-// ImageClient creates a new client configured for image generation with longer timeout.
-// Image generation uses non-streaming requests, so only Timeout is extended.
-func ImageClient(apiKey string) Client {
+// ImageClient creates a new client configured for image generation.
+func ImageClient(apiKey string, timeout time.Duration) Client {
 	retryConfig := DefaultRetryConfig()
 	return NewClient(ClientConfig{
 		APIKey:  apiKey,
-		Timeout: DefaultImageTimeout,
+		Timeout: timeout,
 		Referer: "https://github.com/vstratful/openrouter-cli",
 		Title:   "OpenRouter CLI",
 		Retry:   &retryConfig,

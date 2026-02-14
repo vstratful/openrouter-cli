@@ -25,7 +25,7 @@ type modelsLoadErrorMsg struct {
 // loadModelsCmd fetches models asynchronously from the API
 func loadModelsCmd(apiKey string) tea.Cmd {
 	return func() tea.Msg {
-		client := api.DefaultClient(apiKey)
+		client := api.DefaultClient(apiKey, timeout)
 		models, err := client.ListModels(context.Background(), nil)
 		if err != nil {
 			return modelsLoadErrorMsg{err: err}
@@ -47,7 +47,7 @@ type chatWrapper struct {
 }
 
 func newChatWrapper(apiKey, modelName string, existingSession *config.Session) chatWrapper {
-	client := api.DefaultClient(apiKey)
+	client := api.DefaultClient(apiKey, timeout)
 	chatModel := chat.New(chat.Config{
 		Client:          client,
 		ModelName:       modelName,

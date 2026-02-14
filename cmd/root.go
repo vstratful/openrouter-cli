@@ -3,10 +3,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vstratful/openrouter-cli/internal/config"
 )
+
+var timeout time.Duration
 
 // version is injected at build time by GoReleaser
 var version = "dev"
@@ -31,6 +34,7 @@ Examples:
 
 func init() {
 	rootCmd.Version = version
+	rootCmd.PersistentFlags().DurationVar(&timeout, "timeout", 5*time.Minute, "HTTP timeout for API requests (e.g. 30s, 2m, 10m)")
 }
 
 func Execute() error {
