@@ -23,6 +23,8 @@ updates:
           - "*"
         update-types:
           - "major"
+    cooldown:
+      default-days: 7
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -34,3 +36,5 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "deps"
+    cooldown:
+      default-days: 7
