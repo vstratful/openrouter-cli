@@ -13,6 +13,25 @@ A terminal-based interface for the [OpenRouter API](https://openrouter.ai/) with
 
 ## Installation
 
+### One-liner (Linux/macOS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vstratful/openrouter-cli/main/install.sh | sh
+```
+
+The installer detects your OS/arch, picks a writable directory already on
+`$PATH` (in priority: `~/.local/bin`, `~/bin`, `/usr/local/bin`; falls back
+to `~/.local/bin` and warns if nothing is on `$PATH`), downloads the matching
+release tarball, verifies the SHA-256 checksum, and installs `openrouter`.
+
+Optional environment variables:
+
+| Var | Purpose |
+| --- | --- |
+| `OPENROUTER_CLI_VERSION` | Pin a release (e.g. `v0.3.0`). Defaults to the latest release. |
+| `OPENROUTER_CLI_INSTALL_DIR` | Override install location. |
+| `OPENROUTER_CLI_NO_VERIFY=1` | Skip checksum verification (not recommended). |
+
 ### From Source
 
 ```bash
