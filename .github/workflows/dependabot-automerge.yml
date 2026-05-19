@@ -14,6 +14,29 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: 'package.json'
+          cache: 'pnpm'
+
+      - name: Regenerate lockfile if drifted
+        run: |
+          pnpm install --no-frozen-lockfile
+          if ! git diff --quiet pnpm-lock.yaml; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add pnpm-lock.yaml
+            git commit -m "chore: sync pnpm-lock.yaml after dependabot bump"
+            git push
+          fi
+
+      - name: Verify frozen install
+        run: pnpm install --frozen-lockfile
 
       - name: Fetch Dependabot metadata
         id: meta
@@ -21,11 +44,11 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-merge patch & minor
+      - name: Merge patch & minor
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
           steps.meta.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge ${{ github.event.pull_request.number }} --auto --rebase
+        run: gh pr merge ${{ github.event.pull_request.number }} --rebase
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -34,6 +57,6 @@ jobs:
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
           steps.meta.outputs.update-type == 'version-update:semver-minor'
         run: |
-          gh pr create --title "chore: merge staging (auto-updates) into main" --body "This PR was automatically created to merge automatically-updated dependencies from staging into main. Please review and merge manually." --base main --head staging
+          gh pr create --title "chore: merge staging (auto-updates) into main" --body "This PR was automatically created to merge automatically-updated dependencies from staging into main. Please review and merge manually." --base main --head staging || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
